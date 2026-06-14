@@ -36,11 +36,24 @@ to lex_line(line)
             add {"t": "num", "v": number(slice(line, start, i))} to toks
         otherwise if c is "\""
             change i to i + 1
-            let start be i
+            let sb be ""
             while i is under n and line[i] is not "\""
-                change i to i + 1
+                if line[i] is "\\" and (i + 1) is under n
+                    let nx be line[i + 1]
+                    if nx is "n"
+                        change sb to sb + "\n"
+                    otherwise if nx is "t"
+                        change sb to sb + "\t"
+                    otherwise
+                        change sb to sb + nx
+                    end
+                    change i to i + 2
+                otherwise
+                    change sb to sb + line[i]
+                    change i to i + 1
+                end
             end
-            add {"t": "str", "v": slice(line, start, i)} to toks
+            add {"t": "str", "v": sb} to toks
             change i to i + 1
         otherwise if is_name_char(c)
             let start be i
@@ -101,6 +114,9 @@ to parse_cmp(toks, i)
             if w is "not"
                 change op to "!="
                 change j to j + 1
+            otherwise if w is "in"
+                change op to "in"
+                change j to j + 1
             otherwise if w is "over"
                 change op to ">"
                 change j to j + 1
@@ -158,6 +174,29 @@ to parse_unary(toks, i)
 end
 
 to parse_primary(toks, i)
+    let base be parse_atom(toks, i)
+    give back parse_postfix(base["node"], toks, base["i"])
+end
+
+to parse_postfix(node, toks, i)
+    let nd be node
+    let j be i
+    while j is under length(toks) and toks[j]["t"] is "sym" and toks[j]["v"] is "["
+        let a be parse_expr(toks, j + 1)
+        let after be a["i"]
+        if after is under length(toks) and toks[after]["t"] is "sym" and toks[after]["v"] is ":"
+            let b be parse_expr(toks, after + 1)
+            change nd to {"k": "slice", "o": nd, "a": a["node"], "b": b["node"]}
+            change j to b["i"] + 1
+        otherwise
+            change nd to {"k": "index", "o": nd, "idx": a["node"]}
+            change j to after + 1
+        end
+    end
+    give back {"node": nd, "i": j}
+end
+
+to parse_atom(toks, i)
     let tk be toks[i]
     if tk["t"] is "num"
         give back {"node": {"k": "num", "v": tk["v"]}, "i": i + 1}
@@ -168,6 +207,34 @@ to parse_primary(toks, i)
     if tk["t"] is "sym" and tk["v"] is "("
         let inner be parse_expr(toks, i + 1)
         give back {"node": inner["node"], "i": inner["i"] + 1}
+    end
+    if tk["t"] is "sym" and tk["v"] is "["
+        let items be []
+        let j be i + 1
+        while j is under length(toks) and toks[j]["v"] is not "]"
+            let e be parse_expr(toks, j)
+            add e["node"] to items
+            change j to e["i"]
+            if j is under length(toks) and toks[j]["v"] is ","
+                change j to j + 1
+            end
+        end
+        give back {"node": {"k": "list", "items": items}, "i": j + 1}
+    end
+    if tk["t"] is "sym" and tk["v"] is "{{"
+        let pairs be []
+        let j be i + 1
+        while j is under length(toks) and toks[j]["v"] is not "}}"
+            let kx be parse_expr(toks, j)
+            change j to kx["i"] + 1
+            let vx be parse_expr(toks, j)
+            change j to vx["i"]
+            add {"kn": kx["node"], "vn": vx["node"]} to pairs
+            if j is under length(toks) and toks[j]["v"] is ","
+                change j to j + 1
+            end
+        end
+        give back {"node": {"k": "map", "pairs": pairs}, "i": j + 1}
     end
     if tk["t"] is "word"
         let w be tk["v"]
@@ -213,6 +280,22 @@ to parse_block(prog, i)
     give back {"stmts": stmts, "i": i}
 end
 
+to parse_if(prog, i, cstart)
+    let toks be prog[i]
+    let cond be parse_expr(toks, cstart)
+    let b be parse_block(prog, i + 1)
+    let j be b["i"]
+    if j is under length(prog) and prog[j][0]["v"] is "otherwise"
+        if length(prog[j]) is over 1 and prog[j][1]["v"] is "if"
+            let r be parse_if(prog, j, 2)
+            give back {"stmt": {"k": "if", "c": cond["node"], "body": b["stmts"], "els": [r["stmt"]]}, "i": r["i"]}
+        end
+        let e2 be parse_block(prog, j + 1)
+        give back {"stmt": {"k": "if", "c": cond["node"], "body": b["stmts"], "els": e2["stmts"]}, "i": e2["i"] + 1}
+    end
+    give back {"stmt": {"k": "if", "c": cond["node"], "body": b["stmts"], "els": []}, "i": j + 1}
+end
+
 to parse_stmt(prog, i)
     let toks be prog[i]
     let head be toks[0]["v"]
@@ -221,6 +304,11 @@ to parse_stmt(prog, i)
         give back {"stmt": {"k": "let", "name": toks[1]["v"], "e": ex["node"]}, "i": i + 1}
     end
     if head is "change"
+        if length(toks) is over 2 and toks[2]["v"] is "at"
+            let kx be parse_expr(toks, 3)
+            let vx be parse_expr(toks, kx["i"] + 1)
+            give back {"stmt": {"k": "setat", "name": toks[1]["v"], "key": kx["node"], "e": vx["node"]}, "i": i + 1}
+        end
         let ex be parse_expr(toks, 3)
         give back {"stmt": {"k": "set", "name": toks[1]["v"], "e": ex["node"]}, "i": i + 1}
     end
@@ -228,26 +316,32 @@ to parse_stmt(prog, i)
         let ex be parse_expr(toks, 1)
         give back {"stmt": {"k": "say", "e": ex["node"]}, "i": i + 1}
     end
+    if head is "add"
+        let ax be parse_expr(toks, 1)
+        let tx be parse_expr(toks, ax["i"] + 1)
+        give back {"stmt": {"k": "add", "val": ax["node"], "target": tx["node"]}, "i": i + 1}
+    end
     if head is "give"
         let ex be parse_expr(toks, 2)
         give back {"stmt": {"k": "ret", "e": ex["node"]}, "i": i + 1}
     end
     if head is "if"
-        let cond be parse_expr(toks, 1)
-        let b be parse_block(prog, i + 1)
-        let j be b["i"]
-        let els be []
-        if j is under length(prog) and prog[j][0]["v"] is "otherwise"
-            let e2 be parse_block(prog, j + 1)
-            change els to e2["stmts"]
-            change j to e2["i"]
-        end
-        give back {"stmt": {"k": "if", "c": cond["node"], "body": b["stmts"], "els": els}, "i": j + 1}
+        give back parse_if(prog, i, 1)
     end
     if head is "while"
         let cond be parse_expr(toks, 1)
         let b be parse_block(prog, i + 1)
         give back {"stmt": {"k": "while", "c": cond["node"], "body": b["stmts"]}, "i": b["i"] + 1}
+    end
+    if head is "for"
+        let lx be parse_expr(toks, 4)
+        let b be parse_block(prog, i + 1)
+        give back {"stmt": {"k": "for", "var": toks[2]["v"], "list": lx["node"], "body": b["stmts"]}, "i": b["i"] + 1}
+    end
+    if head is "repeat"
+        let nx be parse_expr(toks, 1)
+        let b be parse_block(prog, i + 1)
+        give back {"stmt": {"k": "repeat", "n": nx["node"], "body": b["stmts"]}, "i": b["i"] + 1}
     end
     if head is "to"
         let params be []
@@ -317,6 +411,32 @@ to eval_expr(node, env)
     if k is "var"
         give back env_get(env, node["name"])
     end
+    if k is "list"
+        let l be []
+        for each it in node["items"]
+            add eval_expr(it, env) to l
+        end
+        give back l
+    end
+    if k is "map"
+        let m be {}
+        for each pr in node["pairs"]
+            let key be eval_expr(pr["kn"], env)
+            let val be eval_expr(pr["vn"], env)
+            let kk be key
+            change m at kk to val
+        end
+        give back m
+    end
+    if k is "index"
+        let o be eval_expr(node["o"], env)
+        let ix be eval_expr(node["idx"], env)
+        give back o[ix]
+    end
+    if k is "slice"
+        let o be eval_expr(node["o"], env)
+        give back slice(o, eval_expr(node["a"], env), eval_expr(node["b"], env))
+    end
     if k is "neg"
         give back 0 - eval_expr(node["a"], env)
     end
@@ -366,6 +486,9 @@ to eval_expr(node, env)
         if op is "<"
             give back a is under b
         end
+        if op is "in"
+            give back a is in b
+        end
         if op is ">="
             give back a is at least b
         end
@@ -377,17 +500,97 @@ to eval_expr(node, env)
     fail("cannot evaluate node")
 end
 
+to call_builtin(name, args)
+    if name is "text"
+        give back {"hit": yes, "v": text(args[0])}
+    end
+    if name is "length"
+        give back {"hit": yes, "v": length(args[0])}
+    end
+    if name is "slice"
+        give back {"hit": yes, "v": slice(args[0], args[1], args[2])}
+    end
+    if name is "number"
+        give back {"hit": yes, "v": number(args[0])}
+    end
+    if name is "split"
+        give back {"hit": yes, "v": split(args[0], args[1])}
+    end
+    if name is "join"
+        give back {"hit": yes, "v": join(args[0], args[1])}
+    end
+    if name is "keys"
+        give back {"hit": yes, "v": keys(args[0])}
+    end
+    if name is "values"
+        give back {"hit": yes, "v": values(args[0])}
+    end
+    if name is "uppercase"
+        give back {"hit": yes, "v": uppercase(args[0])}
+    end
+    if name is "lowercase"
+        give back {"hit": yes, "v": lowercase(args[0])}
+    end
+    if name is "trim"
+        give back {"hit": yes, "v": trim(args[0])}
+    end
+    if name is "replace"
+        give back {"hit": yes, "v": replace(args[0], args[1], args[2])}
+    end
+    if name is "contains"
+        give back {"hit": yes, "v": contains(args[0], args[1])}
+    end
+    if name is "reverse"
+        give back {"hit": yes, "v": reverse(args[0])}
+    end
+    if name is "sort"
+        give back {"hit": yes, "v": sort(args[0])}
+    end
+    if name is "first"
+        give back {"hit": yes, "v": first(args[0])}
+    end
+    if name is "last"
+        give back {"hit": yes, "v": last(args[0])}
+    end
+    if name is "abs"
+        give back {"hit": yes, "v": abs(args[0])}
+    end
+    if name is "floor"
+        give back {"hit": yes, "v": floor(args[0])}
+    end
+    if name is "ceil"
+        give back {"hit": yes, "v": ceil(args[0])}
+    end
+    if name is "round"
+        give back {"hit": yes, "v": round(args[0])}
+    end
+    if name is "range"
+        if length(args) is 1
+            give back {"hit": yes, "v": range(args[0])}
+        end
+        give back {"hit": yes, "v": range(args[0], args[1])}
+    end
+    if name is "read_file"
+        give back {"hit": yes, "v": read_file(args[0])}
+    end
+    if name is "arguments"
+        give back {"hit": yes, "v": arguments()}
+    end
+    if name is "fail"
+        fail(args[0])
+    end
+    give back {"hit": no, "v": nothing}
+end
+
 to eval_call(node, env)
     let name be node["name"]
     let args be []
     for each an in node["args"]
         add eval_expr(an, env) to args
     end
-    if name is "text"
-        give back text(args[0])
-    end
-    if name is "length"
-        give back length(args[0])
+    let bi be call_builtin(name, args)
+    if bi["hit"]
+        give back bi["v"]
     end
     let fn be env_get(env, name)
     let fenv be new_env(fn["env"])
@@ -405,9 +608,16 @@ end
 
 to exec_block(stmts, env)
     for each st in stmts
-        let r be exec_stmt(st, env)
-        if "ret" is in r
-            give back r
+        if st["k"] is "func"
+            exec_stmt(st, env)
+        end
+    end
+    for each st in stmts
+        if st["k"] is not "func"
+            let r be exec_stmt(st, env)
+            if "ret" is in r
+                give back r
+            end
         end
     end
     give back {}
@@ -421,6 +631,42 @@ to exec_stmt(st, env)
     end
     if k is "set"
         env_set(env, st["name"], eval_expr(st["e"], env))
+        give back {}
+    end
+    if k is "setat"
+        let coll be env_get(env, st["name"])
+        let key be eval_expr(st["key"], env)
+        let v be eval_expr(st["e"], env)
+        let kk be key
+        change coll at kk to v
+        give back {}
+    end
+    if k is "add"
+        let lst be eval_expr(st["target"], env)
+        add eval_expr(st["val"], env) to lst
+        give back {}
+    end
+    if k is "for"
+        let seq be eval_expr(st["list"], env)
+        for each item in seq
+            env_def(env, st["var"], item)
+            let r be exec_block(st["body"], env)
+            if "ret" is in r
+                give back r
+            end
+        end
+        give back {}
+    end
+    if k is "repeat"
+        let reps be eval_expr(st["n"], env)
+        let c be 0
+        while c is under reps
+            let r be exec_block(st["body"], env)
+            if "ret" is in r
+                give back r
+            end
+            change c to c + 1
+        end
         give back {}
     end
     if k is "say"
@@ -470,7 +716,7 @@ to vrun(src)
     exec_block(block["stmts"], genv)
 end
 
-let DEMO be "# a program run by Vanta-in-Vanta\nlet x be 5\nlet y be 3\nsay \"x + y = \" + text(x + y)\nsay \"x * y - 1 = \" + text(x * y - 1)\nif x is over y\n    say \"x is bigger\"\notherwise\n    say \"y is bigger\"\nend\nlet i be 1\nwhile i is at most 3\n    say \"count \" + text(i)\n    change i to i + 1\nend\nto double(n)\n    give back n * 2\nend\nsay \"double(10) = \" + text(double(10))\nto fib(n)\n    if n is under 2\n        give back n\n    end\n    give back fib(n - 1) + fib(n - 2)\nend\nsay \"fib(10) = \" + text(fib(10))\n"
+let DEMO be "# a program run by Vanta-in-Vanta\nlet x be 5\nlet y be 3\nsay \"x + y = \" + text(x + y)\nif x is over y\n    say \"x is bigger\"\notherwise\n    say \"y is bigger\"\nend\nto fib(n)\n    if n is under 2\n        give back n\n    end\n    give back fib(n - 1) + fib(n - 2)\nend\nsay \"fib(10) = \" + text(fib(10))\nlet nums be [4, 1, 3, 1, 5, 9, 2, 6]\nlet total be 0\nfor each n in nums\n    change total to total + n\nend\nsay \"sum \" + text(nums) + \" = \" + text(total)\nsay \"sorted = \" + text(sort(nums))\nlet who be {{\"name\": \"Ada\", \"lang\": \"Vanta\"}}\nsay who[\"name\"] + \" writes \" + who[\"lang\"]\nlet shout be \"\"\nfor each w in [\"self\", \"hosting\", \"works\"]\n    change shout to shout + uppercase(w) + \" \"\nend\nsay trim(shout)\n"
 
 let args be arguments()
 if length(args) is over 0

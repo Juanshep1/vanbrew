@@ -71,8 +71,8 @@ BUILTIN = {
         "bin": [{"name": "vnox", "kind": "vanta", "main": "vnox.va"}],
     },
     "vself": {
-        "version": "0.1",
-        "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta (self-hosting, step 1)",
+        "version": "0.2",
+        "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta; runs lists/maps/for-each/recursion and even its own source (self-hosting)",
         "deps": ["vanta"],
         "files": [{"source": _u("/packages/vself/vanta.va"), "as": "vanta.va"}],
         "bin": [{"name": "vself", "kind": "vanta", "main": "vanta.va"}],
