@@ -70,6 +70,13 @@ BUILTIN = {
         "files": [{"source": _u("/packages/vnox/vnox.va"), "as": "vnox.va"}],
         "bin": [{"name": "vnox", "kind": "vanta", "main": "vnox.va"}],
     },
+    "vself": {
+        "version": "0.1",
+        "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta (self-hosting, step 1)",
+        "deps": ["vanta"],
+        "files": [{"source": _u("/packages/vself/vanta.va"), "as": "vanta.va"}],
+        "bin": [{"name": "vself", "kind": "vanta", "main": "vanta.va"}],
+    },
     "topdeck": {
         "version": "1.0",
         "summary": "Yu-Gi-Oh! Master Duel meta analyzer (a Vanta web app, port 8090)",

@@ -12,6 +12,13 @@
     "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vnox/vnox.va"}, "as": "vnox.va"}],
     "bin": [{"name": "vnox", "kind": "vanta", "main": "vnox.va"}]
   },
+  "vself": {
+    "version": "0.1",
+    "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta (self-hosting, step 1)",
+    "deps": ["vanta"],
+    "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vself/vanta.va"}, "as": "vanta.va"}],
+    "bin": [{"name": "vself", "kind": "vanta", "main": "vanta.va"}]
+  },
   "topdeck": {
     "version": "1.0",
     "summary": "Yu-Gi-Oh! Master Duel meta analyzer (a Vanta web app, port 8090)",
