@@ -77,6 +77,13 @@ BUILTIN = {
         "files": [{"source": _u("/packages/vself/vanta.va"), "as": "vanta.va"}],
         "bin": [{"name": "vself", "kind": "vanta", "main": "vanta.va"}],
     },
+    "vc": {
+        "version": "0.1",
+        "summary": "vc - a Vanta-to-C compiler (in Vanta) that builds NATIVE binaries with zero Python (needs a C compiler/cc)",
+        "deps": ["vanta"],
+        "files": [{"source": _u("/packages/vc/vc.va"), "as": "vc.va"}],
+        "bin": [{"name": "vc", "kind": "vanta", "main": "vc.va"}],
+    },
     "topdeck": {
         "version": "1.0",
         "summary": "Yu-Gi-Oh! Master Duel meta analyzer (a Vanta web app, port 8090)",

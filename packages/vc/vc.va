@@ -1,0 +1,455 @@
+# vc - the Vanta-to-C compiler, written in Vanta.
+#
+# Reuses the same lexer + parser as vanta.va (Vanta-in-Vanta), but instead of
+# INTERPRETING the AST it emits C, then builds a NATIVE binary with `cc`. The
+# resulting program runs with ZERO Python - the first step to a Python-free Vanta.
+#
+#   python3 vanta.py vc.va  yourprogram.va     # -> yourprogram.va.bin, then runs it
+#   python3 vanta.py vc.va                      # compiles + runs a built-in demo
+#
+# Core subset (v1): integer numbers, + - * /, comparisons, and/or/not, let/change,
+# if/otherwise[/if], while, for-each over range(), to.../give back + recursion,
+# say (a string literal, or an integer expression). Strings/lists/maps need a
+# runtime value system - that's the next stage.
+
+# ====== front-end: lexer + parser (shared with vanta.va) ===================
+to is_name_char(c)
+    give back c is in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+end
+
+to lex_line(line)
+    let toks be []
+    let i be 0
+    let n be length(line)
+    while i is under n
+        let c be line[i]
+        if c is " " or c is "\t"
+            change i to i + 1
+        otherwise if c is "#"
+            change i to n
+        otherwise if c is in "0123456789"
+            let start be i
+            while i is under n and line[i] is in "0123456789."
+                change i to i + 1
+            end
+            add {"t": "num", "v": number(slice(line, start, i))} to toks
+        otherwise if c is "\""
+            change i to i + 1
+            let sb be ""
+            while i is under n and line[i] is not "\""
+                change sb to sb + line[i]
+                change i to i + 1
+            end
+            add {"t": "str", "v": sb} to toks
+            change i to i + 1
+        otherwise if is_name_char(c)
+            let start be i
+            while i is under n and is_name_char(line[i])
+                change i to i + 1
+            end
+            add {"t": "word", "v": slice(line, start, i)} to toks
+        otherwise
+            add {"t": "sym", "v": c} to toks
+            change i to i + 1
+        end
+    end
+    give back toks
+end
+
+to parse_expr(toks, i)
+    give back parse_or(toks, i)
+end
+
+to parse_or(toks, i)
+    let left be parse_and(toks, i)
+    let node be left["node"]
+    let j be left["i"]
+    while j is under length(toks) and toks[j]["t"] is "word" and toks[j]["v"] is "or"
+        let right be parse_and(toks, j + 1)
+        change node to {"k": "or", "a": node, "b": right["node"]}
+        change j to right["i"]
+    end
+    give back {"node": node, "i": j}
+end
+
+to parse_and(toks, i)
+    let left be parse_cmp(toks, i)
+    let node be left["node"]
+    let j be left["i"]
+    while j is under length(toks) and toks[j]["t"] is "word" and toks[j]["v"] is "and"
+        let right be parse_cmp(toks, j + 1)
+        change node to {"k": "and", "a": node, "b": right["node"]}
+        change j to right["i"]
+    end
+    give back {"node": node, "i": j}
+end
+
+to parse_cmp(toks, i)
+    if i is under length(toks) and toks[i]["t"] is "word" and toks[i]["v"] is "not"
+        let inner be parse_cmp(toks, i + 1)
+        give back {"node": {"k": "not", "a": inner["node"]}, "i": inner["i"]}
+    end
+    let left be parse_add(toks, i)
+    let node be left["node"]
+    let j be left["i"]
+    if j is under length(toks) and toks[j]["t"] is "word" and toks[j]["v"] is "is"
+        change j to j + 1
+        let op be "=="
+        if j is under length(toks) and toks[j]["t"] is "word"
+            let w be toks[j]["v"]
+            if w is "not"
+                change op to "!="
+                change j to j + 1
+            otherwise if w is "over"
+                change op to ">"
+                change j to j + 1
+            otherwise if w is "under"
+                change op to "<"
+                change j to j + 1
+            otherwise if w is "at"
+                change j to j + 1
+                if j is under length(toks) and toks[j]["v"] is "least"
+                    change op to ">="
+                otherwise
+                    change op to "<="
+                end
+                change j to j + 1
+            end
+        end
+        let right be parse_add(toks, j)
+        give back {"node": {"k": "cmp", "op": op, "a": node, "b": right["node"]}, "i": right["i"]}
+    end
+    give back {"node": node, "i": j}
+end
+
+to parse_add(toks, i)
+    let left be parse_mul(toks, i)
+    let node be left["node"]
+    let j be left["i"]
+    while j is under length(toks) and toks[j]["t"] is "sym" and (toks[j]["v"] is "+" or toks[j]["v"] is "-")
+        let op be toks[j]["v"]
+        let right be parse_mul(toks, j + 1)
+        change node to {"k": "bin", "op": op, "a": node, "b": right["node"]}
+        change j to right["i"]
+    end
+    give back {"node": node, "i": j}
+end
+
+to parse_mul(toks, i)
+    let left be parse_unary(toks, i)
+    let node be left["node"]
+    let j be left["i"]
+    while j is under length(toks) and toks[j]["t"] is "sym" and (toks[j]["v"] is "*" or toks[j]["v"] is "/")
+        let op be toks[j]["v"]
+        let right be parse_unary(toks, j + 1)
+        change node to {"k": "bin", "op": op, "a": node, "b": right["node"]}
+        change j to right["i"]
+    end
+    give back {"node": node, "i": j}
+end
+
+to parse_unary(toks, i)
+    if i is under length(toks) and toks[i]["t"] is "sym" and toks[i]["v"] is "-"
+        let inner be parse_unary(toks, i + 1)
+        give back {"node": {"k": "neg", "a": inner["node"]}, "i": inner["i"]}
+    end
+    give back parse_primary(toks, i)
+end
+
+to parse_primary(toks, i)
+    let tk be toks[i]
+    if tk["t"] is "num"
+        give back {"node": {"k": "num", "v": tk["v"]}, "i": i + 1}
+    end
+    if tk["t"] is "str"
+        give back {"node": {"k": "str", "v": tk["v"]}, "i": i + 1}
+    end
+    if tk["t"] is "sym" and tk["v"] is "("
+        let inner be parse_expr(toks, i + 1)
+        give back {"node": inner["node"], "i": inner["i"] + 1}
+    end
+    if tk["t"] is "word"
+        let w be tk["v"]
+        if w is "yes"
+            give back {"node": {"k": "num", "v": 1}, "i": i + 1}
+        end
+        if w is "no"
+            give back {"node": {"k": "num", "v": 0}, "i": i + 1}
+        end
+        if (i + 1) is under length(toks) and toks[i + 1]["t"] is "sym" and toks[i + 1]["v"] is "("
+            let args be []
+            let j be i + 2
+            while j is under length(toks) and toks[j]["v"] is not ")"
+                let a be parse_expr(toks, j)
+                add a["node"] to args
+                change j to a["i"]
+                if j is under length(toks) and toks[j]["v"] is ","
+                    change j to j + 1
+                end
+            end
+            give back {"node": {"k": "call", "name": w, "args": args}, "i": j + 1}
+        end
+        give back {"node": {"k": "var", "name": w}, "i": i + 1}
+    end
+    give back {"node": {"k": "num", "v": 0}, "i": i + 1}
+end
+
+to parse_block(prog, i)
+    let stmts be []
+    while i is under length(prog)
+        let first be prog[i][0]["v"]
+        if first is "end" or first is "otherwise"
+            give back {"stmts": stmts, "i": i}
+        end
+        let r be parse_stmt(prog, i)
+        add r["stmt"] to stmts
+        change i to r["i"]
+    end
+    give back {"stmts": stmts, "i": i}
+end
+
+to parse_if(prog, i, cstart)
+    let toks be prog[i]
+    let cond be parse_expr(toks, cstart)
+    let b be parse_block(prog, i + 1)
+    let j be b["i"]
+    if j is under length(prog) and prog[j][0]["v"] is "otherwise"
+        if length(prog[j]) is over 1 and prog[j][1]["v"] is "if"
+            let r be parse_if(prog, j, 2)
+            give back {"stmt": {"k": "if", "c": cond["node"], "body": b["stmts"], "els": [r["stmt"]]}, "i": r["i"]}
+        end
+        let e2 be parse_block(prog, j + 1)
+        give back {"stmt": {"k": "if", "c": cond["node"], "body": b["stmts"], "els": e2["stmts"]}, "i": e2["i"] + 1}
+    end
+    give back {"stmt": {"k": "if", "c": cond["node"], "body": b["stmts"], "els": []}, "i": j + 1}
+end
+
+to parse_stmt(prog, i)
+    let toks be prog[i]
+    let head be toks[0]["v"]
+    if head is "let"
+        let ex be parse_expr(toks, 3)
+        give back {"stmt": {"k": "let", "name": toks[1]["v"], "e": ex["node"]}, "i": i + 1}
+    end
+    if head is "change"
+        let ex be parse_expr(toks, 3)
+        give back {"stmt": {"k": "set", "name": toks[1]["v"], "e": ex["node"]}, "i": i + 1}
+    end
+    if head is "say"
+        let ex be parse_expr(toks, 1)
+        give back {"stmt": {"k": "say", "e": ex["node"]}, "i": i + 1}
+    end
+    if head is "give"
+        let ex be parse_expr(toks, 2)
+        give back {"stmt": {"k": "ret", "e": ex["node"]}, "i": i + 1}
+    end
+    if head is "if"
+        give back parse_if(prog, i, 1)
+    end
+    if head is "while"
+        let cond be parse_expr(toks, 1)
+        let b be parse_block(prog, i + 1)
+        give back {"stmt": {"k": "while", "c": cond["node"], "body": b["stmts"]}, "i": b["i"] + 1}
+    end
+    if head is "for"
+        let lx be parse_expr(toks, 4)
+        let b be parse_block(prog, i + 1)
+        give back {"stmt": {"k": "for", "var": toks[2]["v"], "list": lx["node"], "body": b["stmts"]}, "i": b["i"] + 1}
+    end
+    if head is "to"
+        let params be []
+        let p be 3
+        while p is under length(toks) and toks[p]["v"] is not ")"
+            if toks[p]["t"] is "word"
+                add toks[p]["v"] to params
+            end
+            change p to p + 1
+        end
+        let b be parse_block(prog, i + 1)
+        give back {"stmt": {"k": "func", "name": toks[1]["v"], "params": params, "body": b["stmts"]}, "i": b["i"] + 1}
+    end
+    let ex be parse_expr(toks, 0)
+    give back {"stmt": {"k": "expr", "e": ex["node"]}, "i": i + 1}
+end
+
+# ====== back-end: emit C ===================================================
+to c_op(op)
+    give back op
+end
+
+to gen_expr(node)
+    let k be node["k"]
+    if k is "num"
+        give back text(node["v"])
+    end
+    if k is "var"
+        give back "v_" + node["name"]
+    end
+    if k is "neg"
+        give back "(-(" + gen_expr(node["a"]) + "))"
+    end
+    if k is "not"
+        give back "(!(" + gen_expr(node["a"]) + "))"
+    end
+    if k is "and"
+        give back "(" + gen_expr(node["a"]) + " && " + gen_expr(node["b"]) + ")"
+    end
+    if k is "or"
+        give back "(" + gen_expr(node["a"]) + " || " + gen_expr(node["b"]) + ")"
+    end
+    if k is "bin"
+        give back "(" + gen_expr(node["a"]) + " " + node["op"] + " " + gen_expr(node["b"]) + ")"
+    end
+    if k is "cmp"
+        give back "(" + gen_expr(node["a"]) + " " + node["op"] + " " + gen_expr(node["b"]) + ")"
+    end
+    if k is "call"
+        let args be []
+        for each an in node["args"]
+            add gen_expr(an) to args
+        end
+        give back "v_" + node["name"] + "(" + join(args, ", ") + ")"
+    end
+    give back "0"
+end
+
+to c_escape(s)
+    let a be replace(s, "\\", "\\\\")
+    give back replace(a, "\"", "\\\"")
+end
+
+to gen_block(stmts, ind)
+    let out be ""
+    for each st in stmts
+        change out to out + gen_stmt(st, ind)
+    end
+    give back out
+end
+
+to gen_stmt(st, ind)
+    let k be st["k"]
+    if k is "let"
+        give back ind + "long v_" + st["name"] + " = " + gen_expr(st["e"]) + ";\n"
+    end
+    if k is "set"
+        give back ind + "v_" + st["name"] + " = " + gen_expr(st["e"]) + ";\n"
+    end
+    if k is "say"
+        if st["e"]["k"] is "str"
+            give back ind + "printf(\"" + c_escape(st["e"]["v"]) + "\\n\");\n"
+        end
+        give back ind + "printf(\"%ld\\n\", (long)(" + gen_expr(st["e"]) + "));\n"
+    end
+    if k is "ret"
+        give back ind + "return " + gen_expr(st["e"]) + ";\n"
+    end
+    if k is "expr"
+        give back ind + gen_expr(st["e"]) + ";\n"
+    end
+    if k is "if"
+        let s be ind + "if (" + gen_expr(st["c"]) + ") {{\n" + gen_block(st["body"], ind + "    ") + ind + "}}"
+        if length(st["els"]) is over 0
+            change s to s + " else {{\n" + gen_block(st["els"], ind + "    ") + ind + "}}"
+        end
+        give back s + "\n"
+    end
+    if k is "while"
+        give back ind + "while (" + gen_expr(st["c"]) + ") {{\n" + gen_block(st["body"], ind + "    ") + ind + "}}\n"
+    end
+    if k is "for"
+        let lst be st["list"]
+        let lo be "0"
+        let hi be "0"
+        if lst["k"] is "call" and lst["name"] is "range"
+            if length(lst["args"]) is 1
+                change hi to gen_expr(lst["args"][0])
+            otherwise
+                change lo to gen_expr(lst["args"][0])
+                change hi to gen_expr(lst["args"][1])
+            end
+        end
+        let v be "v_" + st["var"]
+        give back ind + "for (long " + v + " = " + lo + "; " + v + " < " + hi + "; " + v + "++) {{\n" + gen_block(st["body"], ind + "    ") + ind + "}}\n"
+    end
+    give back ""
+end
+
+to params_proto(params)
+    if length(params) is 0
+        give back "void"
+    end
+    let p be []
+    for each x in params
+        add "long" to p
+    end
+    give back join(p, ", ")
+end
+
+to params_decl(params)
+    if length(params) is 0
+        give back "void"
+    end
+    let p be []
+    for each x in params
+        add "long v_" + x to p
+    end
+    give back join(p, ", ")
+end
+
+to compile_prog(src)
+    let prog be []
+    for each line in split(src, "\n")
+        let toks be lex_line(line)
+        if length(toks) is over 0
+            add toks to prog
+        end
+    end
+    let block be parse_block(prog, 0)
+    let funcs be []
+    let top be []
+    for each st in block["stmts"]
+        if st["k"] is "func"
+            add st to funcs
+        otherwise
+            add st to top
+        end
+    end
+    let c be "#include <stdio.h>\n\n"
+    for each f in funcs
+        change c to c + "long v_" + f["name"] + "(" + params_proto(f["params"]) + ");\n"
+    end
+    change c to c + "\n"
+    for each f in funcs
+        change c to c + "long v_" + f["name"] + "(" + params_decl(f["params"]) + ") {{\n"
+        change c to c + gen_block(f["body"], "    ")
+        change c to c + "    return 0;\n}}\n\n"
+    end
+    change c to c + "int main(void) {{\n" + gen_block(top, "    ") + "    return 0;\n}}\n"
+    give back c
+end
+
+to build_and_run(src, base)
+    let c be compile_prog(src)
+    let cfile be base + ".c"
+    write_file(cfile, c)
+    let exe be base + ".bin"
+    let r be shell("cc -O2 " + cfile + " -o " + exe)
+    if r["code"] is not 0
+        say "C compile error:"
+        say r["output"]
+        give back nothing
+    end
+    say "compiled -> " + exe + " (a native binary, no Python)"
+    say "----"
+    say run(exe)
+end
+
+# ====== driver =============================================================
+let args be arguments()
+if length(args) is over 0
+    build_and_run(read_file(args[0]), args[0])
+otherwise
+    say "vc - compiling a Vanta program to a NATIVE binary, then running it:"
+    let demo be "to fib(n)\n    if n is under 2\n        give back n\n    end\n    give back fib(n - 1) + fib(n - 2)\nend\nto fact(n)\n    if n is at most 1\n        give back 1\n    end\n    give back n * fact(n - 1)\nend\nsay \"fib(25) =\"\nsay fib(25)\nsay \"10! =\"\nsay fact(10)\nlet total be 0\nfor each i in range(1, 101)\n    change total to total + i\nend\nsay \"sum 1..100 =\"\nsay total\n"
+    build_and_run(demo, "/tmp/vcdemo")
+end
