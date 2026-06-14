@@ -1,0 +1,1101 @@
+# =====================================================================
+# VAELDRIC — an interactive lesson site for the True-Realm Tongue,
+# written entirely in Vanta. Press Run, then open http://localhost:8080
+# Sooth tha tungael. — True the tongue.
+# =====================================================================
+
+# ---- core vocabulary (the founding hundred) -------------------------
+let vocab be []
+
+# Pronouns
+add {"en": "I / me", "va": "mael", "pos": "Pronoun", "root": "Latin me; OE ic"} to vocab
+add {"en": "you", "va": "tael", "pos": "Pronoun", "root": "OE thu"} to vocab
+add {"en": "he / him", "va": "herel", "pos": "Pronoun", "root": "OE he"} to vocab
+add {"en": "she / her", "va": "shael", "pos": "Pronoun", "root": "OE heo"} to vocab
+add {"en": "it", "va": "itel", "pos": "Pronoun", "root": "OE hit"} to vocab
+add {"en": "we / us", "va": "wael", "pos": "Pronoun", "root": "OE we"} to vocab
+add {"en": "they / them", "va": "thael", "pos": "Pronoun", "root": "OE tha"} to vocab
+add {"en": "who", "va": "hwael", "pos": "Pronoun", "root": "OE hwa"} to vocab
+add {"en": "what", "va": "hwatel", "pos": "Pronoun", "root": "OE hwaet"} to vocab
+add {"en": "myself", "va": "maelself", "pos": "Pronoun", "root": "mael + self"} to vocab
+
+# Verbs
+add {"en": "be", "va": "isen", "pos": "Verb", "root": "OE is"} to vocab
+add {"en": "have", "va": "havel", "pos": "Verb", "root": "OE haebban"} to vocab
+add {"en": "go", "va": "gailen", "pos": "Verb", "root": "OE gan"} to vocab
+add {"en": "come", "va": "cumel", "pos": "Verb", "root": "OE cuman"} to vocab
+add {"en": "know", "va": "witten", "pos": "Verb", "root": "OE witan"} to vocab
+add {"en": "say / speak", "va": "eakspeil", "pos": "Verb", "root": "Vel-shift: speak"} to vocab
+add {"en": "want", "va": "willen", "pos": "Verb", "root": "OE willan"} to vocab
+add {"en": "see", "va": "sielen", "pos": "Verb", "root": "OE seon"} to vocab
+add {"en": "make / do", "va": "makeil", "pos": "Verb", "root": "OE macian"} to vocab
+add {"en": "give", "va": "giveil", "pos": "Verb", "root": "OE gifan"} to vocab
+add {"en": "take", "va": "nimel", "pos": "Verb", "root": "OE niman"} to vocab
+add {"en": "feel", "va": "feeleil", "pos": "Verb", "root": "OE felan"} to vocab
+add {"en": "love", "va": "luveil", "pos": "Verb", "root": "OE lufian"} to vocab
+add {"en": "think", "va": "inktheil", "pos": "Verb", "root": "Vel-shift: think"} to vocab
+add {"en": "write", "va": "itewreil", "pos": "Verb", "root": "Vel-shift: write"} to vocab
+add {"en": "walk", "va": "alkweil", "pos": "Verb", "root": "Vel-shift: walk"} to vocab
+add {"en": "sleep", "va": "eepsleil", "pos": "Verb", "root": "Vel-shift: sleep"} to vocab
+add {"en": "live", "va": "liveil", "pos": "Verb", "root": "OE libban"} to vocab
+add {"en": "become", "va": "ecumeib", "pos": "Verb", "root": "Vel-shift: become"} to vocab
+add {"en": "begin", "va": "vagineil", "pos": "Verb", "root": "Vel-shift: begin"} to vocab
+
+# Nouns
+add {"en": "day", "va": "daegel", "pos": "Noun", "root": "OE daeg"} to vocab
+add {"en": "night", "va": "nihtael", "pos": "Noun", "root": "OE niht"} to vocab
+add {"en": "life", "va": "laefel", "pos": "Noun", "root": "OE lif"} to vocab
+add {"en": "time", "va": "timel", "pos": "Noun", "root": "OE tima"} to vocab
+add {"en": "world", "va": "worldael", "pos": "Noun", "root": "OE woruld"} to vocab
+add {"en": "self", "va": "selfael", "pos": "Noun", "root": "OE self"} to vocab
+add {"en": "heart", "va": "heortael", "pos": "Noun", "root": "OE heorte"} to vocab
+add {"en": "word", "va": "wordael", "pos": "Noun", "root": "OE word"} to vocab
+add {"en": "mind", "va": "mindael", "pos": "Noun", "root": "OE gemynd"} to vocab
+add {"en": "truth", "va": "soothael", "pos": "Noun", "root": "OE soth"} to vocab
+add {"en": "path", "va": "paethael", "pos": "Noun", "root": "OE paeth"} to vocab
+add {"en": "light", "va": "liehtael", "pos": "Noun", "root": "OE leoht"} to vocab
+add {"en": "shadow", "va": "scaduael", "pos": "Noun", "root": "OE sceadu"} to vocab
+add {"en": "name", "va": "naemael", "pos": "Noun", "root": "OE nama"} to vocab
+add {"en": "soul / spirit", "va": "gaestael", "pos": "Noun", "root": "OE gast"} to vocab
+add {"en": "voice", "va": "oisvael", "pos": "Noun", "root": "Vel-shift: voice"} to vocab
+add {"en": "water", "va": "waeterael", "pos": "Noun", "root": "OE waeter"} to vocab
+add {"en": "fire", "va": "fierael", "pos": "Noun", "root": "OE fyr"} to vocab
+add {"en": "earth / ground", "va": "verthael", "pos": "Noun", "root": "Vel-shift: earth"} to vocab
+add {"en": "sky", "va": "scyael", "pos": "Noun", "root": "OE sceo"} to vocab
+add {"en": "door", "va": "ordhael", "pos": "Noun", "root": "Vel-shift: door"} to vocab
+add {"en": "book", "va": "bocael", "pos": "Noun", "root": "OE boc"} to vocab
+add {"en": "tongue / language", "va": "tungael", "pos": "Noun", "root": "OE tunge"} to vocab
+add {"en": "dream", "va": "reamdael", "pos": "Noun", "root": "Vel-shift: dream"} to vocab
+add {"en": "memory", "va": "mindhoeldael", "pos": "Noun", "root": "mind + hold"} to vocab
+
+# Adjectives
+add {"en": "good", "va": "bonaer", "pos": "Adjective", "root": "Latin bonus"} to vocab
+add {"en": "bad / evil", "va": "malaer", "pos": "Adjective", "root": "Latin malus"} to vocab
+add {"en": "great / large", "va": "magnaer", "pos": "Adjective", "root": "Latin magnus"} to vocab
+add {"en": "small", "va": "litlaer", "pos": "Adjective", "root": "OE lytel"} to vocab
+add {"en": "true", "va": "soothir", "pos": "Adjective", "root": "OE soth"} to vocab
+add {"en": "new", "va": "niwaer", "pos": "Adjective", "root": "OE niwe"} to vocab
+add {"en": "old", "va": "eldaer", "pos": "Adjective", "root": "OE eald"} to vocab
+add {"en": "bright", "va": "bierhtaer", "pos": "Adjective", "root": "OE beorht"} to vocab
+add {"en": "dark", "va": "dimmaer", "pos": "Adjective", "root": "OE dimm"} to vocab
+add {"en": "swift / fast", "va": "snimaer", "pos": "Adjective", "root": "OE snime"} to vocab
+add {"en": "silent", "va": "ilentaer", "pos": "Adjective", "root": "Vel-shift: silent"} to vocab
+add {"en": "free", "va": "veefael", "pos": "Adjective", "root": "Vel-shift: free"} to vocab
+add {"en": "deep", "va": "eepdaer", "pos": "Adjective", "root": "Vel-shift: deep"} to vocab
+add {"en": "long", "va": "longaer", "pos": "Adjective", "root": "OE long"} to vocab
+
+# Function words, particles, adverbs
+add {"en": "the", "va": "tha", "pos": "Function", "root": "Article; OE tha"} to vocab
+add {"en": "a / an", "va": "aen", "pos": "Function", "root": "Article; OE an"} to vocab
+add {"en": "and", "va": "aend", "pos": "Function", "root": "Conjunction; OE and"} to vocab
+add {"en": "or", "va": "elv", "pos": "Function", "root": "Conjunction; reverse of vel"} to vocab
+add {"en": "but", "va": "naevel", "pos": "Function", "root": "Conjunction; nae + vel"} to vocab
+add {"en": "if", "va": "yfel", "pos": "Function", "root": "Conjunction; OE gif"} to vocab
+add {"en": "because", "va": "becausel", "pos": "Function", "root": "Conjunction"} to vocab
+add {"en": "not", "va": "naen", "pos": "Function", "root": "Negator; OE na"} to vocab
+add {"en": "yes", "va": "aevi", "pos": "Function", "root": "Particle; OE gea"} to vocab
+add {"en": "no", "va": "naevi", "pos": "Function", "root": "Particle; OE na"} to vocab
+add {"en": "to", "va": "tov", "pos": "Function", "root": "Preposition; OE to"} to vocab
+add {"en": "with", "va": "midael", "pos": "Function", "root": "Preposition; OE mid"} to vocab
+add {"en": "in / into", "va": "inael", "pos": "Function", "root": "Preposition; OE in"} to vocab
+add {"en": "of / from", "va": "aev", "pos": "Function", "root": "Preposition; ab + of"} to vocab
+add {"en": "through", "va": "oruthael", "pos": "Function", "root": "Vel-shift: through"} to vocab
+add {"en": "now", "va": "nuael", "pos": "Function", "root": "Adverb; OE nu"} to vocab
+add {"en": "here", "va": "hierael", "pos": "Function", "root": "Adverb; OE her"} to vocab
+add {"en": "there", "va": "aerethael", "pos": "Function", "root": "Adverb; OE thaer"} to vocab
+add {"en": "always", "va": "aeverael", "pos": "Function", "root": "Adverb; OE aefre"} to vocab
+add {"en": "never", "va": "naeverael", "pos": "Function", "root": "naen + aeverael"} to vocab
+add {"en": "today", "va": "daegel-nuael", "pos": "Function", "root": "day + now"} to vocab
+add {"en": "all / every", "va": "alael", "pos": "Function", "root": "Determiner; OE eall"} to vocab
+add {"en": "more", "va": "morel", "pos": "Function", "root": "Determiner; OE mara"} to vocab
+add {"en": "only", "va": "aenil", "pos": "Function", "root": "Determiner; OE anlic"} to vocab
+add {"en": "question marker", "va": "kael", "pos": "Function", "root": "Particle; OE hwa"} to vocab
+add {"en": "past tense", "va": "eld", "pos": "Function", "root": "Tense particle; OE eald"} to vocab
+add {"en": "future tense", "va": "veld", "pos": "Function", "root": "Tense particle; vel + eld"} to vocab
+
+# ---- Second Edition endings ------------------------------------------
+# Distinct endings per part of speech replace the old all-'ae' suffixes:
+#   noun  -en   verb  -eth   adjective  -er   adverb  -es
+#   plural -eni   comparative -ern   superlative -erst
+# Pronouns, function words and a few irregular core verbs keep their forms.
+let protected be {}
+for each pv in vocab
+    if pv["pos"] is "Pronoun" or pv["pos"] is "Function"
+        let pk be pv["va"]
+        change protected at pk to yes
+    end
+end
+
+to respell(va)
+    let tail be ""
+    let core be va
+    while length(core) is over 0 and not (core[length(core) - 1] is in "abcdefghijklmnopqrstuvwxyz")
+        change tail to core[length(core) - 1] + tail
+        change core to core[0:length(core) - 1]
+    end
+    if core is in protected
+        give back va
+    end
+    let n be length(core)
+    let built be core
+    if ends_with(core, "aeli")
+        change built to core[0:n - 4] + "eni"
+    otherwise if ends_with(core, "aerst")
+        change built to core[0:n - 5] + "erst"
+    otherwise if ends_with(core, "aern")
+        change built to core[0:n - 4] + "ern"
+    otherwise if ends_with(core, "ael")
+        change built to core[0:n - 3] + "en"
+    otherwise if ends_with(core, "eil")
+        change built to core[0:n - 3] + "eth"
+    otherwise if ends_with(core, "aer")
+        change built to core[0:n - 3] + "er"
+    otherwise if ends_with(core, "aev")
+        change built to core[0:n - 3] + "es"
+    end
+    give back built + tail
+end
+
+to respell_text(text)
+    let out be []
+    for each w in split(text, " ")
+        add respell(w) to out
+    end
+    give back join(out, " ")
+end
+
+# rewrite the core vocabulary's content words to the new endings
+for each ent in vocab
+    if ent["pos"] is "Noun" or ent["pos"] is "Verb" or ent["pos"] is "Adjective"
+        let nv be respell(ent["va"])
+        change ent at "va" to nv
+    end
+end
+
+# ---- structured content (shared by the HTML pages and the JSON API) -
+
+let vowels be []
+add {"sound": "/a/", "spell": "a", "like": "'a' in father"} to vowels
+add {"sound": "/ae/", "spell": "ae", "like": "'a' in day, held long - the signature vowel"} to vowels
+add {"sound": "/e/", "spell": "e", "like": "'e' in bed"} to vowels
+add {"sound": "/i/", "spell": "i", "like": "'i' in bit"} to vowels
+add {"sound": "/ei/", "spell": "ei", "like": "'ay-il', a true diphthong"} to vowels
+add {"sound": "/o/", "spell": "o", "like": "'o' in more"} to vowels
+add {"sound": "/u/", "spell": "u", "like": "'oo' in moon"} to vowels
+
+let suffixes be []
+add {"suffix": "-en", "class": "noun", "say": "en, as in 'pen'", "note": "plural becomes -eni"} to suffixes
+add {"suffix": "-eth", "class": "verb", "say": "eth, as in 'breath'", "note": "never conjugates"} to suffixes
+add {"suffix": "-er", "class": "adjective", "say": "er, as in 'her'", "note": "comparative -ern, superlative -erst"} to suffixes
+add {"suffix": "-es", "class": "adverb", "say": "es, as in 'less'", "note": "the English '-ly'"} to suffixes
+
+let laws be []
+add {"name": "I - Word order", "rule": "Subject then Verb then Object. Always.", "ex": "Mael luveth tael. = I love you."} to laws
+add {"name": "II - No conjugation", "rule": "Verbs end in -eth and never change for person or number.", "ex": "mael / herel / wael luveth = I / he / we love."} to laws
+add {"name": "III - Tense by particle", "rule": "eld (past) or veld (future) before the verb; nothing means present.", "ex": "Mael eld / [-] / veld itewreth = I wrote / write / will write."} to laws
+add {"name": "IV - Plural by -eni", "rule": "Change the noun ending -en to -eni.", "ex": "worden becomes wordeni = word becomes words."} to laws
+add {"name": "V - Questions by kael", "rule": "Begin a sentence with kael; do not invert word order.", "ex": "Kael tael witten tha paethen? = Do you know the path?"} to laws
+add {"name": "VI - Negation by naen", "rule": "Place naen directly before what you negate.", "ex": "Mael naen willen. = I do not want."} to laws
+add {"name": "VII - Possession by aev", "rule": "Possessor + aev + the thing possessed.", "ex": "mael aev gaesten = my soul (I-of soul)."} to laws
+
+let s1 be []
+add {"va": "Tha paethael isen longaer.", "en": "The path is long.", "gloss": "tha = the | paethael = path | isen = is | longaer = long"} to s1
+add {"va": "Mael naen witten hierael tha paethael vendael.", "en": "I do not know where the path ends.", "gloss": "naen = not | witten = know | hierael = here | vendael = end (shift of 'end')"} to s1
+add {"va": "Naevel mael alkweil aeverael.", "en": "But I walk always.", "gloss": "naevel = but | alkweil = walk | aeverael = always"} to s1
+add {"va": "Tha soothael liveil inael tha alkweil.", "en": "The truth lives in the walking.", "gloss": "soothael = truth | liveil = lives | inael = in"} to s1
+add {"va": "Mael aev ordhael isen mael aev heortael.", "en": "My door is my heart.", "gloss": "mael aev ordhael = my door | heortael = heart"} to s1
+
+let s2 be []
+add {"va": "Vaen tha daegel aev mael aev naemael, tha worldael eld isen bierhtaer aend ilentaer.", "en": "On the day of my naming, the world was bright and silent.", "gloss": "vaen = on (shift) | daegel = day | bierhtaer = bright | ilentaer = silent"} to s2
+add {"va": "Shael eld eakspeil tha naemael aen timel, tov timel, oruth timel.", "en": "She spoke the name once, twice, three times.", "gloss": "eakspeil = spoke | aen/tov/oruth timel = one/two/three times"} to s2
+add {"va": "Eakspeil itel inael tha dimmaer aend itel veld ecumeib tael aev liehtael.", "en": "Speak it into the dark and it will become your light.", "gloss": "veld = future | ecumeib = become | liehtael = light"} to s2
+
+let s3 be []
+add {"va": "Shael eld nimel tha paethael.", "en": "She took the path.", "gloss": "nimel = took | paethael = path"} to s3
+add {"va": "Shael eld makeil tha virstael epsteil.", "en": "She made the first step.", "gloss": "makeil = made | virstael = first | epsteil = step"} to s3
+add {"va": "Tha worldael eld ecumeib magnaerst.", "en": "The world became greatest.", "gloss": "ecumeib = became | magnaerst = greatest (superlative)"} to s3
+add {"va": "Tha paethael isen aeverael longaer. Naevel tha liehtael isen aeverael bierhtaerst.", "en": "The path is always long. But the light is always brightest.", "gloss": "aeverael = always | bierhtaerst = brightest"} to s3
+
+let stories be []
+add {"title": "Tha Paethael", "subtitle": "( The Path )", "lines": s1} to stories
+add {"title": "Tha Daegel aev Naemael", "subtitle": "( The Day of the Name )", "lines": s2} to stories
+add {"title": "Tha Inael aev Liehtael", "subtitle": "( Into the Light )", "lines": s3} to stories
+
+# rewrite the stories (and their titles) to the new endings too
+for each st in stories
+    let rt be respell_text(st["title"])
+    change st at "title" to rt
+    for each ln in st["lines"]
+        let rv be respell_text(ln["va"])
+        change ln at "va" to rv
+    end
+end
+
+# Vaelscript — the original writing system. Each letter's authoritative form
+# description (the SVG drawing of each glyph lives in the front end, keyed by id).
+let glyphs be []
+add {"id": "a", "name": "Ael", "latin": "A", "desc": "A stave crowned with an upward chevron - a peak rising from the stem."} to glyphs
+add {"id": "b", "name": "Bael", "latin": "B", "desc": "A stave bearing a forward flag, a sharp triangle pointing right, near the top."} to glyphs
+add {"id": "d", "name": "Daeven", "latin": "D", "desc": "A stave bearing a backward flag, a triangle pointing left, near the top."} to glyphs
+add {"id": "e", "name": "Eiren", "latin": "E", "desc": "A stave crowned with a downward chevron - a valley folding into the stem."} to glyphs
+add {"id": "f", "name": "Faevel", "latin": "F", "desc": "A stave with two short twigs rising to the right, one above the other."} to glyphs
+add {"id": "g", "name": "Gaest", "latin": "G", "desc": "A free-standing saltire - two strokes crossed, with no stave."} to glyphs
+add {"id": "h", "name": "Haeth", "latin": "H", "desc": "A stave with twin twigs rising to both sides from its centre."} to glyphs
+add {"id": "i", "name": "Ieven", "latin": "I", "desc": "A single bare stave - the simplest letter."} to glyphs
+add {"id": "k", "name": "Kaeven", "latin": "K / C / Q", "desc": "A stave with a forward flag at its centre. C, K and Q share this one letter."} to glyphs
+add {"id": "l", "name": "Laevel", "latin": "L", "desc": "A stave with a single twig falling to the right at its foot."} to glyphs
+add {"id": "m", "name": "Maevel", "latin": "M", "desc": "A stave bearing two forward flags, stacked one above the other."} to glyphs
+add {"id": "n", "name": "Nael", "latin": "N", "desc": "A stave with one twig falling to the right near the top."} to glyphs
+add {"id": "o", "name": "Oeven", "latin": "O", "desc": "A stave pierced through its centre by a standing diamond."} to glyphs
+add {"id": "p", "name": "Paeven", "latin": "P", "desc": "A stave bearing a backward flag low on the stem."} to glyphs
+add {"id": "r", "name": "Raeth", "latin": "R", "desc": "A stave with a forward flag above and a falling leg below."} to glyphs
+add {"id": "s", "name": "Saevel", "latin": "S", "desc": "A free-standing zigzag - the lightning letter, drawn with no stave."} to glyphs
+add {"id": "t", "name": "Taeth", "latin": "T", "desc": "A stave crowned with a single horizontal bar."} to glyphs
+add {"id": "u", "name": "Ueven", "latin": "U", "desc": "A stave with an upward chevron rising from its foot."} to glyphs
+add {"id": "v", "name": "Vaeld", "latin": "V", "desc": "A stave with a centred upward chevron. The marker letter of Vaeldric, drawn first."} to glyphs
+add {"id": "w", "name": "Waeven", "latin": "W", "desc": "A stave bearing two upward chevrons, stacked one above the other."} to glyphs
+add {"id": "y", "name": "Yaevel", "latin": "Y", "desc": "A stave forking into two twigs that rise from the top."} to glyphs
+add {"id": "z", "name": "Zaeven", "latin": "Z", "desc": "A stave crossed by a saltire near its top."} to glyphs
+add {"id": "th", "name": "Thaevel", "latin": "TH", "desc": "A stave clasped at its centre by a lens - two facing bows. The thorn letter."} to glyphs
+add {"id": "ae", "name": "Aeven", "latin": "AE", "desc": "A stave bearing two standing diamonds, high and low. The vowel ligature."} to glyphs
+
+# ---- translator tables ----------------------------------------------
+# Inflected English forms (plurals, tenses, possessives) that map onto a core
+# Vaeldric word. Format: "en1,en2,...=vaeldric".
+let extra_src be []
+add "is,am,are,be,been,being,was,were=isen" to extra_src
+add "has,had,having=havel" to extra_src
+add "goes,going,gone,went=gailen" to extra_src
+add "comes,coming,came=cumel" to extra_src
+add "knows,knew,known,knowing=witten" to extra_src
+add "says,said,speaks,spoke,speaking,saying,spoken=eakspeil" to extra_src
+add "wants,wanted,wanting=willen" to extra_src
+add "sees,saw,seen,seeing=sielen" to extra_src
+add "does,doing,done,makes,making,made=makeil" to extra_src
+add "gives,gave,given,giving=giveil" to extra_src
+add "takes,took,taken,taking=nimel" to extra_src
+add "feels,felt,feeling=feeleil" to extra_src
+add "loves,loved,loving=luveil" to extra_src
+add "thinks,thought,thinking=inktheil" to extra_src
+add "writes,wrote,written,writing=itewreil" to extra_src
+add "walks,walked,walking=alkweil" to extra_src
+add "lives,lived,living=liveil" to extra_src
+add "becomes,became,becoming=ecumeib" to extra_src
+add "begins,began,beginning=vagineil" to extra_src
+add "my,mine=mael" to extra_src
+add "your,yours=tael" to extra_src
+add "his=herel" to extra_src
+add "hers=shael" to extra_src
+add "its=itel" to extra_src
+add "our,ours=wael" to extra_src
+add "their,theirs=thael" to extra_src
+add "this,that,these,those=tha" to extra_src
+add "of,from=aev" to extra_src
+add "with,together=midael" to extra_src
+add "into=inael" to extra_src
+
+let extra be {}
+for each row in extra_src
+    let pair be split(row, "=")
+    let va be pair[1]
+    for each en in split(pair[0], ",")
+        let ekey be trim(en)
+        change extra at ekey to va
+    end
+end
+# new endings for the inflection map too
+for each ek in keys(extra)
+    let ev be respell(extra[ek])
+    change extra at ek to ev
+end
+
+# reverse map: Vaeldric word -> primary English meaning (for VA -> EN)
+let va_en be {}
+for each entry in vocab
+    let parts be split(entry["en"], "/")
+    let vkey be entry["va"]
+    let ven be trim(parts[0])
+    change va_en at vkey to ven
+end
+
+# ---- the coinage engine: new words from old roots --------------------
+# Vaeldric never borrows a modern word; it COINS one by compounding native
+# roots, the Old English / Icelandic way (phone = far-voice). Each row is
+# "english,aliases | first-root-stem | second-root-word | literal gloss".
+# New building-block roots (from Old English): feor=far, scy=sky, rime=number
+# (OE rim), iren=iron, fleog=fly, sweg=sound, lic=likeness, cist=chest/box,
+# craet=cart, hweol=wheel, bat=boat, steor=star, maegen=might, werc=work,
+# staef=staff, webb=web, eage=eye, hael=heal, arwe=arrow.
+let coin_src be []
+add "phone,telephone,cellphone|feor|oisvael|far-voice" to coin_src
+add "airplane,aeroplane,plane,jet|scy|batael|sky-boat" to coin_src
+add "computer|rime|mindael|number-mind" to coin_src
+add "television,tv|feor|sielael|far-sight" to coin_src
+add "car,automobile,auto|self|craetael|self-cart" to coin_src
+add "radio|scy|oisvael|sky-voice" to coin_src
+add "clock,watch|tim|hoeldael|time-holder" to coin_src
+add "electricity|fier|maegenael|fire-might" to coin_src
+add "machine,engine,motor|iren|wercael|iron-work" to coin_src
+add "camera|lic|cistael|likeness-box" to coin_src
+add "gun,rifle|fier|staefael|fire-staff" to coin_src
+add "train|iren|craetael|iron-cart" to coin_src
+add "rocket,missile|fier|arwael|fire-arrow" to coin_src
+add "spaceship,spacecraft|steor|batael|star-boat" to coin_src
+add "robot|iren|selfael|iron-self" to coin_src
+add "internet,web,network|word|webbael|word-web" to coin_src
+add "map|verth|licael|earth-likeness" to coin_src
+add "glasses,spectacles|eag|glaesael|eye-glass" to coin_src
+add "doctor,physician|laef|haelael|life-healer" to coin_src
+add "music,song|sweg|craeftael|sound-craft" to coin_src
+add "bicycle,bike|tov|hweolael|two-wheel" to coin_src
+add "battery|fier|cistael|fire-box" to coin_src
+
+# --- a fuller modern lexicon, coined from native roots ---
+# screens, software, devices
+add "screen,monitor|lieht|bordael|light-board" to coin_src
+add "keyboard|staef|bordael|letter-board" to coin_src
+add "app,program,software|mind|craeftael|mind-craft" to coin_src
+add "email,mail|feor|staefael|far-letter" to coin_src
+add "website,site|word|stedael|word-stead" to coin_src
+add "photo,photograph,picture,image|lieht|licael|light-likeness" to coin_src
+add "selfie|self|licael|self-likeness" to coin_src
+add "video,movie,film|cwic|licael|quick-likeness" to coin_src
+add "speaker|oisva|cistael|voice-box" to coin_src
+add "headphones,earphones,earbuds|eare|oisvael|ear-voice" to coin_src
+add "microphone,mic|oisva|nimael|voice-taker" to coin_src
+add "charger|fier|givael|fire-giver" to coin_src
+add "wifi,signal,network|scy|thraedael|sky-thread" to coin_src
+add "password|weard|wordael|ward-word" to coin_src
+add "printer|boc|wyrcael|book-wright" to coin_src
+add "calculator|rime|reccael|number-reckoner" to coin_src
+add "mouse|hand|stanael|hand-stone" to coin_src
+add "tablet,ipad|hand|bordael|hand-board" to coin_src
+add "button|finger|stanael|finger-stone" to coin_src
+add "alarm|tim|cigael|time-caller" to coin_src
+add "satellite|scy|steorael|sky-star" to coin_src
+add "drone|scy|deorael|sky-beast" to coin_src
+add "videogame,game,console|hand|plegael|hand-play" to coin_src
+add "emoji|mod|licael|mood-likeness" to coin_src
+add "chip,processor|rime|stanael|number-stone" to coin_src
+add "flashlight,torch|hand|liehtael|hand-light" to coin_src
+add "lamp|lieht|stanael|light-stone" to coin_src
+# transport
+add "bus|folc|craetael|folk-cart" to coin_src
+add "truck,lorry|byrth|craetael|burden-cart" to coin_src
+add "submarine|eepd|batael|deep-boat" to coin_src
+add "helicopter,chopper|hweol|fleogael|wheel-flyer" to coin_src
+add "motorcycle,motorbike|fier|hweolael|fire-wheel" to coin_src
+add "tank|iren|deorael|iron-beast" to coin_src
+add "fuel,gas,petrol,gasoline|fier|waeterael|fire-water" to coin_src
+add "road,highway,street|long|wegael|long-way" to coin_src
+add "airport|scy|stowael|sky-place" to coin_src
+add "wheel|hweol|stanael|round-stone" to coin_src
+# science, energy, matter
+add "energy,power|inn|maegenael|inner-might" to coin_src
+add "atom,particle|litl|stanael|little-stone" to coin_src
+add "gravity|verth|tihtael|earth-pull" to coin_src
+add "magnet|iren|tihtael|iron-pull" to coin_src
+add "gene,dna|laef|thraedael|life-thread" to coin_src
+add "cell|laef|cistael|life-box" to coin_src
+add "virus,germ|laef|feondael|life-foe" to coin_src
+add "medicine,drug,pill|laef|dryncael|life-drink" to coin_src
+add "laser|lieht|arwael|light-arrow" to coin_src
+add "metal,steel|iren|stanael|iron-stone" to coin_src
+add "oil|smeor|waeterael|grease-water" to coin_src
+add "mirror|sceaw|licael|show-likeness" to coin_src
+# objects & home
+add "key|ordh|caegael|door-key" to coin_src
+add "lock|ordh|weardael|door-ward" to coin_src
+add "ticket|weg|staefael|way-letter" to coin_src
+add "candle|lieht|staefael|light-staff" to coin_src
+add "bottle|waeter|cistael|water-box" to coin_src
+add "cup,glass,mug|drync|cistael|drink-box" to coin_src
+add "plate,dish|met|bordael|food-board" to coin_src
+add "table,desk|met|stedael|food-stead" to coin_src
+add "chair,seat|sitt|stedael|sit-stead" to coin_src
+add "bed|slaep|stedael|sleep-stead" to coin_src
+add "window|wind|eagael|wind-eye" to coin_src
+add "stairs|stigh|wegael|climb-way" to coin_src
+add "ring|finger|goldael|finger-gold" to coin_src
+add "clothes,clothing|claeth|wercael|cloth-work" to coin_src
+add "shoe,shoes,boot|fot|claethael|foot-cloth" to coin_src
+add "hat,cap|heafod|claethael|head-cloth" to coin_src
+add "knife,blade|scearp|seaxael|sharp-knife" to coin_src
+add "money,cash|cep|stanael|trade-stone" to coin_src
+add "card|cep|bordael|trade-board" to coin_src
+# people & jobs
+add "teacher|lar|givael|lore-giver" to coin_src
+add "student,pupil|lar|nimael|lore-taker" to coin_src
+add "leader,president,boss|folc|heafodael|folk-head" to coin_src
+add "soldier,warrior|here|werael|host-man" to coin_src
+add "police,guard,cop|folc|weardael|folk-ward" to coin_src
+add "scientist|sooth|secael|truth-seeker" to coin_src
+add "artist|craeft|wyrcael|craft-wright" to coin_src
+add "writer,author|word|wyrcael|word-wright" to coin_src
+add "singer|sweg|givael|sound-giver" to coin_src
+add "farmer|corn|wyrcael|grain-wright" to coin_src
+add "hunter|deor|secael|beast-seeker" to coin_src
+add "nurse|laef|weardael|life-ward" to coin_src
+add "engineer|iren|wyrcael|iron-wright" to coin_src
+add "pilot|scy|wealdael|sky-ruler" to coin_src
+add "driver|craet|steorael|cart-steerer" to coin_src
+add "cook,chef|met|wyrcael|food-wright" to coin_src
+add "stranger|uncuth|werael|unknown-man" to coin_src
+add "thief,robber|niht|nimael|night-taker" to coin_src
+# abstract & feeling
+add "happiness,joy,bliss|inn|wynael|inner-joy" to coin_src
+add "sadness,sorrow,grief|heort|sorhael|heart-sorrow" to coin_src
+add "anger,rage|hat|moodael|hot-mood" to coin_src
+add "hope|heort|hopael|heart-hope" to coin_src
+add "fear,dread|heort|egeael|heart-fear" to coin_src
+add "peace,calm|still|frithael|still-peace" to coin_src
+add "war,battle|here|daedael|host-deed" to coin_src
+add "death|laef|endael|life-end" to coin_src
+add "news,information,info|niw|spellael|new-tale" to coin_src
+add "science|sooth|larael|truth-lore" to coin_src
+add "history|eld|spellael|old-tale" to coin_src
+add "math,mathematics|rime|larael|number-lore" to coin_src
+add "art|hand|craeftael|hand-craft" to coin_src
+add "law,rule|folc|mearcael|folk-mark" to coin_src
+add "government,state|folc|wealdael|folk-rule" to coin_src
+add "religion,faith|god|larael|god-lore" to coin_src
+add "country,nation,land|folc|landael|folk-land" to coin_src
+add "city,town|folc|burgael|folk-fort" to coin_src
+add "village|litl|burgael|little-fort" to coin_src
+add "company,business,firm|cep|weredael|trade-band" to coin_src
+add "school,college|lar|husael|lore-house" to coin_src
+add "university|magn|larael|great-lore" to coin_src
+add "hospital,clinic|laef|husael|life-house" to coin_src
+add "church,temple|god|husael|god-house" to coin_src
+add "shop,store,market|cep|stowael|trade-place" to coin_src
+add "bank|feoh|husael|money-house" to coin_src
+add "library|boc|husael|book-house" to coin_src
+add "museum|eld|husael|old-house" to coin_src
+add "restaurant,cafe|met|husael|food-house" to coin_src
+add "hotel|cuma|husael|guest-house" to coin_src
+add "factory|iren|husael|iron-house" to coin_src
+add "prison,jail|weard|husael|guard-house" to coin_src
+add "garden|wyrt|stedael|plant-stead" to coin_src
+add "park|grene|stedael|green-stead" to coin_src
+add "farm|corn|landael|grain-land" to coin_src
+add "office|werc|husael|work-house" to coin_src
+# nature & weather
+add "cloud|scy|wolcenael|sky-cloud" to coin_src
+add "rain|waeter|fyllael|water-fall" to coin_src
+add "snow|cald|fyllael|cold-fall" to coin_src
+add "storm|wind|wraethael|wind-wrath" to coin_src
+add "ice|cald|stanael|cold-stone" to coin_src
+add "ocean,sea|magn|waeterael|great-water" to coin_src
+add "river,stream|long|waeterael|long-water" to coin_src
+add "mountain,hill|magn|beorgael|great-hill" to coin_src
+add "forest,wood,jungle|treow|landael|tree-land" to coin_src
+add "flower,blossom|wyrt|blostmael|plant-blossom" to coin_src
+add "desert|drye|landael|dry-land" to coin_src
+add "island|sae|landael|sea-land" to coin_src
+add "sun|daeg|steorael|day-star" to coin_src
+add "moon|niht|steorael|night-star" to coin_src
+add "planet|wander|steorael|wandering-star" to coin_src
+# food & drink
+add "bread|corn|metael|grain-food" to coin_src
+add "coffee,tea|hat|dryncael|hot-drink" to coin_src
+add "sugar,candy,sweets|swet|cornael|sweet-grain" to coin_src
+add "milk|cu|dryncael|cow-drink" to coin_src
+add "wine|berg|dryncael|grape-drink" to coin_src
+add "beer,ale|corn|dryncael|grain-drink" to coin_src
+add "meat|deor|metael|beast-food" to coin_src
+add "fruit|treow|metael|tree-food" to coin_src
+add "soup,stew|hat|waeterael|hot-water" to coin_src
+add "salt|sae|stanael|sea-stone" to coin_src
+add "honey|beo|dryncael|bee-drink" to coin_src
+# time
+add "week|seofon|daegael|seven-day" to coin_src
+add "weekend|rest|daegael|rest-day" to coin_src
+add "holiday,vacation|halig|daegael|holy-day" to coin_src
+add "minute,moment|litl|stundael|little-while" to coin_src
+add "hour|tim|stundael|time-while" to coin_src
+add "morning|daeg|cumael|day-coming" to coin_src
+add "evening,dusk|daeg|endael|day-end" to coin_src
+add "future|niw|timael|new-time" to coin_src
+add "past|eld|timael|old-time" to coin_src
+add "moment,now|tim|stanael|time-stone" to coin_src
+
+let coinages be {}
+let coin_words be []
+for each row in coin_src
+    let f be split(row, "|")
+    let words be split(f[0], ",")
+    let primary be trim(words[0])
+    add primary to coin_words
+    let value be [trim(f[1]), trim(f[2]), trim(f[3])]
+    for each word in words
+        let key be trim(word)
+        change coinages at key to value
+    end
+end
+
+# ---- the Vel Shift, computed live -----------------------------------
+
+to is_vowel(c)
+    give back c is in ["a", "e", "i", "o", "u"]
+end
+
+to suffix_for(pos)
+    if pos is "verb"
+        give back "eth"
+    end
+    if pos is "adj"
+        give back "er"
+    end
+    if pos is "adv"
+        give back "es"
+    end
+    give back "en"
+end
+
+to vel_shift(word, suffix)
+    let w be lowercase(trim(word))
+    if length(w) is 0
+        give back ""
+    end
+    if is_vowel(w[0])
+        give back "v" + w + suffix
+    end
+    let i be 0
+    while i is under length(w) and not is_vowel(w[i])
+        change i to i + 1
+    end
+    let cluster be w[0:i]
+    let stem be w[i:length(w)]
+    give back stem + cluster + suffix
+end
+
+# Is this English word already a core word? Return its Vaeldric form or nothing.
+to core_lookup(word)
+    for each entry in vocab
+        let parts be split(lowercase(entry["en"]), "/")
+        for each pt in parts
+            if trim(pt) is word
+                give back entry["va"]
+            end
+        end
+    end
+    give back nothing
+end
+
+# ---- the translator -------------------------------------------------
+
+to strip_punct(w)
+    let out be ""
+    let i be 0
+    while i is under length(w)
+        let c be w[i]
+        if c is in "abcdefghijklmnopqrstuvwxyz0123456789-"
+            change out to out + c
+        end
+        change i to i + 1
+    end
+    give back out
+end
+
+to en_lookup(word)
+    if word is in extra
+        give back extra[word]
+    end
+    give back core_lookup(word)
+end
+
+to pluralize(va)
+    if ends_with(va, "en")
+        give back va[0:length(va) - 2] + "eni"
+    end
+    give back va + "i"
+end
+
+# English -> Vaeldric: core words and inflections by table, everything else by
+# the Vel Shift; tense/negation/question handled with particles.
+to en_to_va(text)
+    let low be lowercase(trim(text))
+    let question be ends_with(low, "?")
+    let out be []
+    if question
+        add "kael" to out
+    end
+    for each w in split(low, " ")
+        let clean be strip_punct(w)
+        if clean is ""
+            skip
+        end
+        if question and clean is in ["do", "does"]
+            skip
+        end
+        if clean is in ["not", "dont", "doesnt", "didnt", "wont", "cant", "cannot", "never", "no"]
+            add "naen" to out
+            skip
+        end
+        if clean is in ["will", "shall"]
+            add "veld" to out
+            skip
+        end
+        if clean is in ["was", "were", "did"]
+            add "eld" to out
+            skip
+        end
+        let va be en_lookup(clean)
+        if va is not nothing
+            add va to out
+            skip
+        end
+        if ends_with(clean, "s") and length(clean) is over 2
+            let singular be clean[0:length(clean) - 1]
+            let sv be en_lookup(singular)
+            if sv is not nothing
+                add pluralize(sv) to out
+                skip
+            end
+        end
+        let c be coin(clean)
+        add c["vaeldric"] to out
+    end
+    give back join(out, " ")
+end
+
+# Vaeldric -> English: reverse vocabulary lookup + particles. Best for text
+# built from the core words.
+to va_to_en(text)
+    let out be []
+    let question be no
+    for each w in split(lowercase(trim(text)), " ")
+        let clean be strip_punct(w)
+        if clean is ""
+            skip
+        end
+        if clean is "kael"
+            change question to yes
+            skip
+        end
+        if clean is "eld"
+            add "(past)" to out
+            skip
+        end
+        if clean is "veld"
+            add "(will)" to out
+            skip
+        end
+        if clean is "naen"
+            add "not" to out
+            skip
+        end
+        if clean is "aev"
+            add "of" to out
+            skip
+        end
+        if clean is in va_en
+            add va_en[clean] to out
+            skip
+        end
+        if ends_with(clean, "eni")
+            let sing be clean[0:length(clean) - 3] + "en"
+            if sing is in va_en
+                add va_en[sing] + "s" to out
+                skip
+            end
+        end
+        add "?" + clean to out
+    end
+    let sentence be join(out, " ")
+    if question
+        give back sentence + "?"
+    end
+    give back sentence
+end
+
+# Coin a Vaeldric word for a modern concept from native roots, or fall back to
+# the plain Vel Shift if we have no kenning for it yet.
+to coin(word)
+    let w be lowercase(trim(word))
+    if w is in coinages
+        let parts be coinages[w]
+        let stem be parts[0]
+        let tail be parts[1]
+        let gloss be parts[2]
+        let compound be respell(stem + tail)
+        give back {"english": w, "vaeldric": compound, "hyphen": stem + "-" + respell(tail), "gloss": gloss, "coined": yes}
+    end
+    give back {"english": w, "vaeldric": vel_shift(w, "en"), "hyphen": "", "gloss": "no coinage yet - Vel Shift", "coined": no}
+end
+
+# ---- shared page chrome ---------------------------------------------
+
+to styles()
+    let s be ""
+    change s to s + "*{{box-sizing:border-box}}"
+    change s to s + "body{{margin:0;background:#0d0c13;color:#e9e3d6;font-family:'Iowan Old Style','Palatino',Georgia,serif;line-height:1.65}}"
+    change s to s + "a{{color:#c9a86a;text-decoration:none}}"
+    change s to s + "nav{{display:flex;flex-wrap:wrap;gap:18px;align-items:center;padding:16px 28px;border-bottom:1px solid #2a2738;background:#100e18;position:sticky;top:0}}"
+    change s to s + "nav a{{font-size:15px;letter-spacing:.5px;color:#b8b0c4}}"
+    change s to s + "nav a:hover{{color:#e9d9b0}}"
+    change s to s + "nav .brand{{font-size:20px;font-weight:700;letter-spacing:3px;color:#d8b878;margin-right:auto}}"
+    change s to s + "main{{max-width:820px;margin:0 auto;padding:36px 28px 80px}}"
+    change s to s + "h1{{font-size:34px;color:#e9d9b0;margin:.2em 0 .4em;letter-spacing:1px}}"
+    change s to s + "h2{{font-size:23px;color:#c9a86a;margin:1.6em 0 .4em;border-bottom:1px solid #26233380;padding-bottom:6px}}"
+    change s to s + "p{{margin:.7em 0}}"
+    change s to s + ".lede{{font-size:19px;color:#cfc7b6}}"
+    change s to s + ".va{{color:#e9d9b0;font-weight:600}}"
+    change s to s + ".quote{{font-size:20px;color:#d8b878;font-style:italic;border-left:3px solid #c9a86a;padding:6px 18px;margin:18px 0;background:#15131f}}"
+    change s to s + ".quote .t{{display:block;color:#9a93a8;font-size:15px;font-style:normal;margin-top:6px}}"
+    change s to s + "table{{border-collapse:collapse;width:100%;margin:14px 0}}"
+    change s to s + "th,td{{text-align:left;padding:8px 12px;border-bottom:1px solid #242031}}"
+    change s to s + "th{{color:#9a93a8;font-size:13px;letter-spacing:1px;text-transform:uppercase}}"
+    change s to s + "td.v{{color:#e9d9b0;font-weight:600;font-size:18px}}"
+    change s to s + ".card{{background:#15131f;border:1px solid #2a2738;border-radius:14px;padding:20px 22px;margin:16px 0}}"
+    change s to s + ".grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}}"
+    change s to s + ".chip{{background:#15131f;border:1px solid #2a2738;border-radius:10px;padding:12px 14px}}"
+    change s to s + ".chip .v{{font-size:19px}}.chip .e{{color:#9a93a8;font-size:14px}}"
+    change s to s + "input,select{{font:inherit;font-size:17px;padding:10px 12px;background:#0d0c13;color:#e9e3d6;border:1px solid #3a3550;border-radius:9px}}"
+    change s to s + "button{{font:inherit;font-size:16px;padding:10px 18px;background:#c9a86a;color:#1a1525;border:0;border-radius:9px;font-weight:700;cursor:pointer}}"
+    change s to s + "form{{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}}"
+    change s to s + ".result{{font-size:26px;margin:18px 0;padding:18px 20px;background:#15131f;border:1px solid #2a2738;border-radius:12px}}"
+    change s to s + ".result .en{{color:#9a93a8}}.result .va{{color:#e9d9b0}}"
+    change s to s + ".note{{font-size:14px;color:#9a93a8}}"
+    change s to s + ".story p.va{{font-size:20px;margin:.6em 0 .1em}}"
+    change s to s + ".story p.en{{color:#b8b0c4;margin:.1em 0}}"
+    change s to s + ".story p.gloss{{color:#6f6982;font-size:13px;margin:.1em 0 1.2em}}"
+    change s to s + ".opt{{display:block;background:#15131f;border:1px solid #2a2738;border-radius:10px;padding:14px 18px;margin:10px 0;color:#e9e3d6;font-size:18px}}"
+    change s to s + ".opt:hover{{border-color:#c9a86a;color:#e9d9b0}}"
+    change s to s + ".big{{font-size:40px;color:#e9d9b0;text-align:center;letter-spacing:1px;margin:10px 0}}"
+    change s to s + ".ok{{color:#7fcf9a}}.no{{color:#e07a7a}}"
+    change s to s + "footer{{text-align:center;color:#6f6982;padding:30px;border-top:1px solid #242031;font-style:italic}}"
+    give back s
+end
+
+to nav()
+    let n be "<nav><a class='brand' href='/'>VAELDRIC</a>"
+    change n to n + "<a href='/alphabet'>Sounds</a>"
+    change n to n + "<a href='/shift'>Vel Shift</a>"
+    change n to n + "<a href='/grammar'>Grammar</a>"
+    change n to n + "<a href='/words'>Words</a>"
+    change n to n + "<a href='/read'>Read</a>"
+    change n to n + "<a href='/quiz'>Quiz</a></nav>"
+    give back n
+end
+
+to page(title, body)
+    let h be "<!doctype html><html><head><meta charset='utf-8'>"
+    change h to h + "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    change h to h + "<title>" + title + " - Vaeldric</title><style>" + styles() + "</style></head><body>"
+    change h to h + nav()
+    change h to h + "<main>" + body + "</main>"
+    change h to h + "<footer>Sooth tha tungen. - True the tongue.</footer></body></html>"
+    give back h
+end
+
+# ---- pages ----------------------------------------------------------
+
+to home_body()
+    let b be "<h1>Tha Tungael Vaeldric</h1>"
+    change b to b + "<p class='lede'>The True-Realm Tongue - a constructed language of Old English and Latin roots, with a grammar a speaker of English already half-knows. Learn it here, one rule at a time.</p>"
+    change b to b + "<div class='quote'>Mael itewreth mael aev soothen vaen tha daegel nuael. Tha tungen isen mael aev. Alael wordeni isen soothir."
+    change b to b + "<span class='t'>I write my truth on this day now. The tongue is mine. All words are true.</span></div>"
+    change b to b + "<h2>The four endings that build the language</h2>"
+    change b to b + "<div class='grid'>"
+    change b to b + "<div class='chip'><div class='v'>-en</div><div class='e'>noun &middot; 'pen'</div></div>"
+    change b to b + "<div class='chip'><div class='v'>-eth</div><div class='e'>verb &middot; 'breath'</div></div>"
+    change b to b + "<div class='chip'><div class='v'>-er</div><div class='e'>adjective &middot; 'her'</div></div>"
+    change b to b + "<div class='chip'><div class='v'>-es</div><div class='e'>adverb &middot; 'less'</div></div>"
+    change b to b + "</div>"
+    change b to b + "<h2>Start here</h2>"
+    change b to b + "<p>1. Learn the <a href='/alphabet'>sounds</a>. 2. Master the <a href='/shift'>Vel Shift</a> - turn any English word into Vaeldric. 3. Learn the <a href='/grammar'>seven laws</a>. 4. Drill the <a href='/words'>hundred words</a>. 5. <a href='/read'>Read a story</a>, then <a href='/quiz'>test yourself</a>.</p>"
+    give back b
+end
+
+to alphabet_body()
+    let b be "<h1>The Sounds of Vaeldric</h1>"
+    change b to b + "<p>Vaeldric has seven vowels and two signature diphthongs. The vowel <span class='va'>ae</span> is its sonic fingerprint - a pure, held 'a' as in 'day', never the English glide.</p>"
+    change b to b + "<table><tr><th>Sound</th><th>Spelling</th><th>Like</th></tr>"
+    let vowels be []
+    add ["/a/", "a", "'a' in father"] to vowels
+    add ["/ae/", "ae", "'a' in day, held long - the signature vowel"] to vowels
+    add ["/e/", "e", "'e' in bed"] to vowels
+    add ["/i/", "i", "'i' in bit"] to vowels
+    add ["/ei/", "ei", "'ay-il', a true diphthong"] to vowels
+    add ["/o/", "o", "'o' in more"] to vowels
+    add ["/u/", "u", "'oo' in moon"] to vowels
+    for each row in vowels
+        change b to b + "<tr><td class='v'>" + row[0] + "</td><td class='v'>" + row[1] + "</td><td>" + row[2] + "</td></tr>"
+    end
+    change b to b + "</table>"
+    change b to b + "<h2>The four part-of-speech suffixes</h2>"
+    change b to b + "<table><tr><th>Suffix</th><th>Class</th><th>Say</th><th>Notes</th></tr>"
+    change b to b + "<tr><td class='v'>-en</td><td>noun</td><td>en</td><td>plural becomes -eni</td></tr>"
+    change b to b + "<tr><td class='v'>-eth</td><td>verb</td><td>eth</td><td>never conjugates</td></tr>"
+    change b to b + "<tr><td class='v'>-er</td><td>adjective</td><td>er</td><td>comparative -ern, superlative -erst</td></tr>"
+    change b to b + "<tr><td class='v'>-es</td><td>adverb</td><td>es</td><td>the English '-ly'</td></tr>"
+    change b to b + "</table>"
+    change b to b + "<p class='note'>Stress falls on the suffix vowel of longer words, giving Vaeldric its rising cadence. Double consonants are held longer, as in Italian.</p>"
+    give back b
+end
+
+to shift_body(q)
+    let cur be ""
+    if "word" is in q
+        change cur to q["word"]
+    end
+    let b be "<h1>The Vel Shift</h1>"
+    change b to b + "<p>The rule that turns <em>any</em> English word into Vaeldric, so you are never without a word.</p>"
+    change b to b + "<div class='card'><b>Starts with consonants:</b> move the leading consonant cluster to the end, then add the suffix.<br>think &rarr; <span class='va'>ink + th + -eth = inktheth</span><br><br>"
+    change b to b + "<b>Starts with a vowel:</b> add <span class='va'>v-</span> to the front, then the suffix.<br>eat &rarr; <span class='va'>v + eat + -eth = veateth</span></div>"
+    change b to b + "<h2>Try it</h2>"
+    change b to b + "<form method='get' action='/shift'>"
+    change b to b + "<input name='word' placeholder='an English word...' value='" + cur + "'>"
+    change b to b + "<select name='pos'><option value='noun'>noun</option><option value='verb'>verb</option><option value='adj'>adjective</option><option value='adv'>adverb</option></select>"
+    change b to b + "<button>Shift it</button></form>"
+    if "word" is in q
+        let w be trim(lowercase(q["word"]))
+        if length(w) is over 0
+            let pos be "noun"
+            if "pos" is in q
+                change pos to q["pos"]
+            end
+            let result be vel_shift(w, suffix_for(pos))
+            change b to b + "<div class='result'><span class='en'>" + w + "</span> &rarr; <span class='va'>" + result + "</span></div>"
+            let core be core_lookup(w)
+            if core is not nothing
+                change b to b + "<p class='note'>This is a <b>core word</b>: <span class='va'>" + core + "</span>. Core vocabulary is never shifted - use the canonical form above in real writing.</p>"
+            end
+        end
+    end
+    give back b
+end
+
+to grammar_body()
+    let b be "<h1>The Seven Laws</h1>"
+    change b to b + "<p>No gender, no cases, no conjugation, no irregular forms. If you know English sentence order, you know Vaeldric order.</p>"
+    let laws be []
+    add ["I - Word order", "Subject then Verb then Object. Always. <span class='va'>Mael luveil tael.</span> = I love you."] to laws
+    add ["II - No conjugation", "Verbs end in -eth and never change. <span class='va'>mael luveth, herel luveth, wael luveth</span> = I/he/we love."] to laws
+    add ["III - Tense by particle", "<span class='va'>eld</span> (past) or <span class='va'>veld</span> (future) before the verb; nothing = present. <span class='va'>Mael eld itewreth / itewreth / veld itewreth</span> = I wrote / write / will write."] to laws
+    add ["IV - Plural by -eni", "Change -en to -eni. <span class='va'>worden &rarr; wordeni</span> = word &rarr; words."] to laws
+    add ["V - Questions by kael", "Begin with <span class='va'>kael</span>; do not invert. <span class='va'>Kael tael witten tha paethael?</span> = Do you know the path?"] to laws
+    add ["VI - Negation by naen", "Put <span class='va'>naen</span> before what you negate. <span class='va'>Mael naen willen.</span> = I do not want."] to laws
+    add ["VII - Possession by aev", "Possessor + <span class='va'>aev</span> + thing. <span class='va'>mael aev gaestael</span> = my soul (I-of soul)."] to laws
+    for each law in laws
+        change b to b + "<div class='card'><h2 style='margin-top:0;border:0'>" + law[0] + "</h2>" + law[1] + "</div>"
+    end
+    change b to b + "<h2>Adjectives and adverbs come after</h2>"
+    change b to b + "<p><span class='va'>tha soothen bierhter</span> = the bright truth (lit. the truth bright). Comparatives add -ern, superlatives add -erst: <span class='va'>boner &rarr; bonern &rarr; bonerst</span> = good, better, best.</p>"
+    give back b
+end
+
+to words_body()
+    let b be "<h1>The Hundred Words</h1>"
+    change b to b + "<p>The founding vocabulary - etymologically chosen, never shifted. Master these plus the Vel Shift and you can say anything.</p>"
+    let cats be ["Pronoun", "Verb", "Noun", "Adjective", "Function"]
+    for each cat in cats
+        change b to b + "<h2>" + cat + "s</h2><table><tr><th>English</th><th>Vaeldric</th><th>Root</th></tr>"
+        for each entry in vocab
+            if entry["pos"] is cat
+                change b to b + "<tr><td>" + entry["en"] + "</td><td class='v'>" + entry["va"] + "</td><td class='note'>" + entry["root"] + "</td></tr>"
+            end
+        end
+        change b to b + "</table>"
+    end
+    give back b
+end
+
+to story(st)
+    let h be "<div class='story'><h2>" + st["title"] + "</h2><p class='note'>" + st["subtitle"] + "</p>"
+    for each ln in st["lines"]
+        change h to h + "<p class='va'>" + ln["va"] + "</p><p class='en'>" + ln["en"] + "</p><p class='gloss'>" + ln["gloss"] + "</p>"
+    end
+    change h to h + "</div>"
+    give back h
+end
+
+to read_body()
+    let b be "<h1>Read</h1><p>Each line shows Vaeldric, its English meaning, and a word-by-word gloss - the linguist's way to learn to read a tongue.</p>"
+    for each st in stories
+        change b to b + story(st)
+    end
+    give back b
+end
+
+to quiz_body(q)
+    let n be length(vocab)
+    let b be "<h1>Quiz</h1>"
+
+    # result screen
+    if "p" is in q
+        let qi be number(q["qi"])
+        let pi be number(q["p"])
+        let right be vocab[qi]
+        if qi is pi
+            change b to b + "<p class='big ok'>Soothir! Correct.</p>"
+        otherwise
+            change b to b + "<p class='big no'>Naen - not quite.</p>"
+            change b to b + "<p style='text-align:center'>You chose <b>" + vocab[pi]["en"] + "</b>.</p>"
+        end
+        change b to b + "<p style='text-align:center;font-size:22px'><span class='va'>" + right["va"] + "</span> = " + right["en"] + "</p>"
+        change b to b + "<p style='text-align:center'><a class='opt' style='display:inline-block' href='/quiz'>Next word &rarr;</a></p>"
+        give back b
+    end
+
+    # new question: correct + three distractors
+    let qi be random(0, n - 1)
+    let opts be [qi]
+    while length(opts) is under 4
+        let r be random(0, n - 1)
+        if not (r is in opts)
+            add r to opts
+        end
+    end
+    # shuffle by a few random swaps
+    repeat 6 times
+        let i be random(0, 3)
+        let j be random(0, 3)
+        let tmp be opts[i]
+        change opts at i to opts[j]
+        change opts at j to tmp
+    end
+
+    change b to b + "<p style='text-align:center'>What does this word mean?</p>"
+    change b to b + "<p class='big'>" + vocab[qi]["va"] + "</p>"
+    for each o in opts
+        change b to b + "<a class='opt' href='/quiz?qi=" + qi + "&p=" + o + "'>" + vocab[o]["en"] + "</a>"
+    end
+    give back b
+end
+
+# ---- the server -----------------------------------------------------
+
+# ---- JSON API (so the Next.js frontend can use Vanta as its engine) -
+
+to cors_json(obj)
+    give back {"status": 200, "body": obj, "type": "application/json", "headers": {"Access-Control-Allow-Origin": "*"}}
+end
+
+# Build a fresh quiz question: a prompt word, four English options, answer index.
+to make_question()
+    let n be length(vocab)
+    let qi be random(0, n - 1)
+    let opts be [qi]
+    while length(opts) is under 4
+        let r be random(0, n - 1)
+        if not (r is in opts)
+            add r to opts
+        end
+    end
+    repeat 6 times
+        let i be random(0, 3)
+        let j be random(0, 3)
+        let tmp be opts[i]
+        change opts at i to opts[j]
+        change opts at j to tmp
+    end
+    let options be []
+    let answer be 0
+    let k be 0
+    for each o in opts
+        add vocab[o]["en"] to options
+        if o is qi
+            change answer to k
+        end
+        change k to k + 1
+    end
+    give back {"prompt": vocab[qi]["va"], "root": vocab[qi]["root"], "options": options, "answer": answer}
+end
+
+to api(path, q)
+    if path is "/api/all"
+        give back cors_json({"vocab": vocab, "vowels": vowels, "suffixes": suffixes, "laws": laws, "stories": stories, "glyphs": glyphs})
+    end
+    if path is "/api/glyphs"
+        give back cors_json(glyphs)
+    end
+    if path is "/api/words"
+        give back cors_json(vocab)
+    end
+    if path is "/api/shift"
+        let w be ""
+        if "word" is in q
+            change w to trim(lowercase(q["word"]))
+        end
+        let pos be "noun"
+        if "pos" is in q
+            change pos to q["pos"]
+        end
+        let core be core_lookup(w)
+        let cf be ""
+        if core is not nothing
+            change cf to core
+        end
+        give back cors_json({"english": w, "vaeldric": vel_shift(w, suffix_for(pos)), "core": cf})
+    end
+    if path is "/api/quiz"
+        give back cors_json(make_question())
+    end
+    if path is "/api/translate"
+        let text be ""
+        if "text" is in q
+            change text to q["text"]
+        end
+        let dir be "en2va"
+        if "dir" is in q
+            change dir to q["dir"]
+        end
+        let result be ""
+        if dir is "va2en"
+            change result to va_to_en(text)
+        otherwise
+            change result to en_to_va(text)
+        end
+        give back cors_json({"input": text, "output": result, "dir": dir})
+    end
+    if path is "/api/coin"
+        let word be ""
+        if "word" is in q
+            change word to q["word"]
+        end
+        give back cors_json(coin(word))
+    end
+    if path is "/api/coinages"
+        let gallery be []
+        for each cw in coin_words
+            add coin(cw) to gallery
+        end
+        give back cors_json(gallery)
+    end
+    give back {"status": 404, "body": {"error": "no such endpoint"}, "type": "application/json", "headers": {"Access-Control-Allow-Origin": "*"}}
+end
+
+to handle(req)
+    let path be req["path"]
+    let q be req["query"]
+    if length(path) is at least 5 and path[0:5] is "/api/"
+        give back api(path, q)
+    end
+    if path is "/"
+        give back page("Home", home_body())
+    end
+    if path is "/alphabet"
+        give back page("Sounds", alphabet_body())
+    end
+    if path is "/shift"
+        give back page("Vel Shift", shift_body(q))
+    end
+    if path is "/grammar"
+        give back page("Grammar", grammar_body())
+    end
+    if path is "/words"
+        give back page("Words", words_body())
+    end
+    if path is "/read"
+        give back page("Read", read_body())
+    end
+    if path is "/quiz"
+        give back page("Quiz", quiz_body(q))
+    end
+    give back {"status": 404, "body": page("Lost", "<h1>Naen paethael</h1><p>No such path. <a href='/'>Return home</a>.</p>")}
+end
+
+say "Vaeldric lesson site - open http://localhost:8080"
+serve(8080, handle)

@@ -1,0 +1,22 @@
+{
+  "vanta": {
+    "version": "4.2",
+    "summary": "The Vanta plain-English programming language & interpreter",
+    "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vanta/vanta.py"}, "as": "vanta.py"}],
+    "bin": [{"name": "vanta", "kind": "python", "main": "vanta.py"}]
+  },
+  "topdeck": {
+    "version": "1.0",
+    "summary": "Yu-Gi-Oh! Master Duel meta analyzer (a Vanta web app, port 8090)",
+    "deps": ["vanta"],
+    "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/topdeck/mdmeta.va"}, "as": "mdmeta.va"}],
+    "bin": [{"name": "topdeck", "kind": "vanta", "main": "mdmeta.va"}]
+  },
+  "vaeldric": {
+    "version": "1.0",
+    "summary": "Vaeldric conlang site + JSON API (a Vanta web app, port 8080)",
+    "deps": ["vanta"],
+    "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vaeldric/vaeldric.va"}, "as": "vaeldric.va"}],
+    "bin": [{"name": "vaeldric", "kind": "vanta", "main": "vaeldric.va"}]
+  }
+}

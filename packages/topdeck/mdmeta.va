@@ -1,0 +1,1600 @@
+# =====================================================================
+# TOPDECK - a Yu-Gi-Oh! Master Duel meta deck builder & analyzer.
+# Written entirely in Vanta. Press Run, then open http://localhost:8090
+# Live meta from masterduelmeta.com (unofficial) with a bundled fallback;
+# a curated counter/tech knowledge base; optional AI analysis (your key).
+# =====================================================================
+
+let META_URL be "https://www.masterduelmeta.com/api/v1/top-decks?limit=40&sort=-created"
+let UA be "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+let CARD_BACK be "https://images.ygoprodeck.com/images/cards/back.jpg"
+
+# ---- bundled fallback snapshot (used if the live API is down/blocked) -
+let SNAPSHOT be []
+add {"name": "Snake-Eye", "count": 9} to SNAPSHOT
+add {"name": "Tenpai Dragon", "count": 8} to SNAPSHOT
+add {"name": "Yubel", "count": 7} to SNAPSHOT
+add {"name": "Branded", "count": 6} to SNAPSHOT
+add {"name": "Fiendsmith", "count": 5} to SNAPSHOT
+add {"name": "Voiceless Voice", "count": 4} to SNAPSHOT
+add {"name": "Maliss", "count": 4} to SNAPSHOT
+add {"name": "Memento", "count": 3} to SNAPSHOT
+add {"name": "Labrynth", "count": 3} to SNAPSHOT
+add {"name": "Kashtira", "count": 2} to SNAPSHOT
+
+# ---- curated knowledge base ------------------------------------------
+# "name|tier|summary|weak_to(comma)|tech(comma)|beats(comma)|gameplan"
+let kb_src be []
+add "Snake-Eye|S|The defining FIRE combo deck - one-card starters loop into Flamberge and Fountain recursion for a locked board.|Droll & Lock Bird,Dimensional Barrier,Ash Blossom & Joyous Spring,Effect Veiler,Evenly Matched,Mulcharmy Fuwalos|Diabellstar the Black Witch,Bonfire,WANTED: Seeker of Sinful Spoils,Original Sinful Spoils - Snake-Eye|Runick,Floowandereeze|Open a Snake-Eye starter or Diabellstar the Black Witch, search the Spoils suite, end on Apollousa or a negate with Fountain to recur." to kb_src
+add "Tenpai Dragon|S|An explosive Synchro OTK deck that swarms Sangenpai dragons for lethal battle damage from almost nothing.|Mulcharmy Purulia,Dimensional Barrier,Skill Drain,Evenly Matched,Anti-Spell Fragrance,Droll & Lock Bird|Pot of Prosperity,Bonfire,Pinpoint Landing|Runick,floodgate control|Special the Sangenpai line, Synchro into Sangen Summoning, and swing for game through battle." to kb_src
+add "Yubel|A|A resilient DARK control deck on Spirit of Yubel and indestructible bodies, grinding with Fiendsmith negates.|Droll & Lock Bird,Mulcharmy Fuwalos,Kaijus,Dark Ruler No More,Effect Veiler|Fiendsmith engine,Samsara Lotus,Mature Chronicle|aggro that ignores battle|Establish Spirit of Yubel, recur monsters every turn, out-grind the opponent." to kb_src
+add "Branded|A|A Fusion midrange/control deck (Branded Despia) using Albaz fusions, Bystials, and Branded Fusion advantage.|Droll & Lock Bird,Ash Blossom & Joyous Spring,banishing the Fusions,Dimensional Barrier|Bystial package,Branded Fusion,Fallen of Albaz|decks with no GY interaction|Resolve Branded Fusion into Mirrorjade, banish threats, grind with Despia recursion." to kb_src
+add "Fiendsmith|A|A splashable LIGHT Fiend engine (Engraver/Requiem/Sequence) bolted onto Yubel, Lightsworn, and more.|Droll & Lock Bird,Ash Blossom & Joyous Spring,Mulcharmy Fuwalos,D.D. Crow|Lightsworn package,Yubel package|decks with no hand traps|Loop Requiem and Sequence with a LIGHT Fiend for Moral Tech and a negate." to kb_src
+add "Voiceless Voice|A|A Ritual control deck looping Saffira and Lo, the Prayers for grindy card advantage.|Droll & Lock Bird,Mulcharmy Fuwalos,Anti-Spell Fragrance,Ash Blossom & Joyous Spring|Diviner of the Herald,Pot of Extravagance|fast OTK decks|Ritual summon repeatedly, recur with Magnamhut and Saffira, out-resource everyone." to kb_src
+add "Maliss|A|A DARK Link/combo deck (Alice in Wonderland) chaining White Rabbit and Trans-Am traps into big boards.|Ash Blossom & Joyous Spring,Droll & Lock Bird,Effect Veiler,Nibiru, the Primal Being|Diabellstar the Black Witch,Sinful Spoils,Bonfire|slow control|Search the Maliss traps, combo into Link bodies and disruption, set up Trans-Am follow-up." to kb_src
+add "Memento|A|A grindy DARK deck that recurs Memento monsters from the GY into Quetzalcoatl and Goncpopaca control.|graveyard hate,Droll & Lock Bird,Dimensional Barrier|Fiendsmith engine,Branded splash|aggro decks|Loop Mementos from the GY, summon the big bodies, grind out a long game." to kb_src
+add "Labrynth|A|A trap-control deck using Lady and Lovely Labrynth plus normal-trap recursion to lock the opponent out.|Royal Decree,Droll & Lock Bird,Evenly Matched,Anti-trap|Lovely Labrynth,Big Welcome,Transaction Rollback|fair midrange|Set traps, bounce/destroy threats with Welcome traps, grind with Lady Labrynth advantage." to kb_src
+add "Kashtira|B|A banishing lock deck that seals zones with Shangri-Ira and Riseheart for prison-style control.|Droll & Lock Bird,Artifact Lancea,Ash Blossom & Joyous Spring,Effect Veiler|Pot of Prosperity,Pressured Planet Wraitsoth|combo decks needing the field|Banish with the Kashtira line, lock zones with Shangri-Ira, deny resources." to kb_src
+add "Runick|B|A Spell-based stall/control deck that mills and grinds with Runick Fountain instead of summoning.|fast OTK decks,Droll & Lock Bird,Mystical Refpanel|Runick Fountain,Spright or Naturia base|slow grind decks|Use Runick quick-plays to interact and mill, win slowly with Fountain and a small engine." to kb_src
+add "Floowandereeze|B|A normal-summon turbo deck that swarms birds and locks the opponent with Empen and floodgates.|Droll & Lock Bird,Ghost Belle & Haunted Mansion,There Can Be Only One,Ash Blossom & Joyous Spring|Barrier Statue,Floodgate traps|combo decks|Normal summon a bird, chain searches, end on Empen with floodgate backrow." to kb_src
+add "Purrely|B|A cute Xyz control deck building Eppurrely Noir/Plump for repeatable removal and protection.|Droll & Lock Bird,Ash Blossom & Joyous Spring,Mulcharmy Fuwalos|Pot of Prosperity,Sweet Memories|aggro|Stack Epurrely materials, summon Noir for removal, protect it and grind." to kb_src
+add "Rescue-ACE|B|A FIRE control deck (Rescue-ACE) using traps and Hydrant to recur board presence.|Droll & Lock Bird,Ash Blossom & Joyous Spring,Infinite Impermanence|Snake-Eye splash,Fire engine|fragile combo|Set up Hydrant and Turbulence, recur ACE monsters, control with traps." to kb_src
+add "Salamangreat|C|A FIRE Link deck reusing Sunlight Wolf and Salamangreat Sanctuary for grindy value.|Droll & Lock Bird,Ash Blossom & Joyous Spring,Effect Veiler|Snake-Eye splash,Fiendsmith|slow decks|Link into Sunlight Wolf, reuse spells with Sanctuary, grind incremental advantage." to kb_src
+add "Exosister|C|A LIGHT Xyz deck that punishes graveyard use and floats into Mikailis/Asophiel disruption.|backrow removal,Droll & Lock Bird,non-GY strategies|Pot of Prosperity,Exosister Returnia|graveyard decks|Hold up Xyz disruption, banish from the GY, swing with protected bodies." to kb_src
+add "Ryzeal|A|A newer EARTH Xyz aggro-control deck grinding with Detonator and Cross-Sheep value.|Ash Blossom & Joyous Spring,Droll & Lock Bird,Effect Veiler,Nibiru, the Primal Being|Fiendsmith engine,Pot of Prosperity|slow control|Open a Ryzeal starter, build Xyz disruption, grind with Detonator pops." to kb_src
+add "Mannadium|A|A DARK Synchro combo deck (Visas/Mannadium) comboing into Baronne and multiple negates.|Ash Blossom & Joyous Spring,Effect Veiler,Infinite Impermanence,Droll & Lock Bird|Fiendsmith engine,Pot of Prosperity|floodgate control|Combo the Visas-Mannadium line into stacked Synchro negates." to kb_src
+add "Centur-Ion|A|A Synchro control deck using Primera and Trudea with standby plays into Baronne and Legatia.|Ash Blossom & Joyous Spring,Droll & Lock Bird,Effect Veiler|Stand Up Centurion,Pot of Prosperity|aggro|Set the Centur-Ion trap, Synchro into Baronne and Legatia, grind value." to kb_src
+add "Lunalight|B|A DARK Fusion deck swarming Lunalight Fusions and Sabre Dancer for big beatdown.|Droll & Lock Bird,Ash Blossom & Joyous Spring,Infinite Impermanence|Fiendsmith,Branded splash|control|Fuse into Sabre Dancer and Cat Dancer, swing for heavy damage." to kb_src
+add "Zoodiac|B|An Xyz toolbox deck stacking Drident and Tigermortar for repeatable removal.|Droll & Lock Bird,Ash Blossom & Joyous Spring,There Can Be Only One|Tenpai splash,Pot of Prosperity|combo|Stack Zoodiac materials, make Drident, control with repeatable pops." to kb_src
+add "Unchained|B|A DARK destruction deck abusing Abomination and Sarama to destroy and float into bigger threats.|Droll & Lock Bird,Ash Blossom & Joyous Spring,banishing|Fiendsmith,Bystial package|swarm decks|Trigger Unchained destruction effects, float up the chain." to kb_src
+add "Sky Striker|B|A Spell-heavy control deck using Engage and Multirole with very few monsters.|Droll & Lock Bird,Ash Blossom & Joyous Spring,Anti-Spell Fragrance|Kashtira splash,Pot of Prosperity|grindy fair decks|Spam Sky Striker spells, control with Hornet Drones and Widow Anchor." to kb_src
+
+let kb be {}
+let kb_names be []
+for each row in kb_src
+    let f be split(row, "|")
+    let nm be trim(f[0])
+    add nm to kb_names
+    let entry be {"name": nm, "tier": trim(f[1]), "summary": trim(f[2]), "weak_to": split(f[3], ","), "tech": split(f[4], ","), "beats": split(f[5], ","), "gameplan": trim(f[6])}
+    change kb at nm to entry
+end
+
+# ---- live meta layer (cached, with fallback) -------------------------
+let meta_cache be nothing
+let meta_at be 0
+let meta_source be "snapshot"
+
+to tally_decks(decks)
+    let counts be {}
+    for each d in decks
+        let dt be d["deckType"]
+        if dt is not nothing
+            let nm be dt["name"]
+            if nm is in counts
+                change counts at nm to counts[nm] + 1
+            otherwise
+                change counts at nm to 1
+            end
+        end
+    end
+    # to a sorted list of {name, count}
+    let out be []
+    for each k, v in counts
+        add {"name": k, "count": v} to out
+    end
+    give back sort_by(make e give 0 - e["count"], out)
+end
+
+to fetch_meta()
+    let n be now()
+    if meta_cache is not nothing and n - meta_at is under 1800
+        give back meta_cache
+    end
+    attempt
+        let res be http_get(META_URL, {"User-Agent": UA})
+        if res["status"] is 200
+            let decks be from_json(res["body"])
+            change meta_cache to {"top": tally_decks(decks), "decks": decks}
+            change meta_source to "live"
+            change meta_at to n
+            give back meta_cache
+        end
+    rescue e
+        change meta_source to "snapshot"
+    end
+    change meta_cache to {"top": SNAPSHOT, "decks": []}
+    change meta_source to "snapshot"
+    change meta_at to n
+    give back meta_cache
+end
+
+# ---- the analysis brain ----------------------------------------------
+to analyze(name)
+    if name is in kb
+        give back kb[name]
+    end
+    give back nothing
+end
+
+# cards that counter the most of the CURRENT top archetypes
+to counter_the_meta(top)
+    let tally be {}
+    let covered be 0
+    for each row in top
+        let nm be row["name"]
+        if nm is in kb
+            change covered to covered + 1
+            for each card in kb[nm]["weak_to"]
+                let c be trim(card)
+                if c is in tally
+                    change tally at c to tally[c] + 1
+                otherwise
+                    change tally at c to 1
+                end
+            end
+        end
+    end
+    let out be []
+    for each k, v in tally
+        add {"card": k, "answers": v} to out
+    end
+    give back {"cards": sort_by(make e give 0 - e["answers"], out), "covered": covered}
+end
+
+# ---- optional AI mode (bring your own key) ---------------------------
+let ai be {"provider": "openrouter", "key": "", "model": "anthropic/claude-sonnet-4.6"}
+
+to ai_base()
+    if ai["provider"] is "anthropic"
+        give back "https://api.anthropic.com/v1"
+    end
+    if ai["provider"] is "ollama-cloud"
+        give back "https://ollama.com/v1"
+    end
+    if ai["provider"] is "nvidia"
+        give back "https://integrate.api.nvidia.com/v1"
+    end
+    give back "https://openrouter.ai/api/v1"
+end
+
+# Turn providers' confusing auth errors into a clear, actionable message.
+to friendly_error(msg)
+    let low be lowercase(msg)
+    if "missing authentication" is in low or "no auth" is in low or "user not found" is in low or "unauthorized" is in low or "invalid api key" is in low or "no api key" is in low
+        give back "API key rejected (\"" + msg + "\") - the key looks invalid or incomplete. Re-copy your FULL key from the provider and Save key again."
+    end
+    give back msg
+end
+
+# Pull a human-readable message out of an API error response.
+to api_error_text(j, status)
+    if "error" is in j
+        let e be j["error"]
+        attempt
+            give back friendly_error(e["message"])
+        rescue ex
+            give back friendly_error(text(e))
+        end
+    end
+    if "message" is in j
+        give back friendly_error(text(j["message"]))
+    end
+    give back "unexpected response (HTTP " + text(status) + ")"
+end
+
+# A tiny call to verify the key/provider/model actually authenticate.
+to ai_ping()
+    if ai["key"] is ""
+        give back "No key set - paste your API key and Save key first."
+    end
+    let key be ai["key"]
+    let mdl be ai["model"]
+    attempt
+        if ai["provider"] is "anthropic"
+            let abody be {"model": mdl, "max_tokens": 5, "messages": [{"role": "user", "content": "ping"}]}
+            let ahdrs be {"x-api-key": key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"}
+            let ar be http_post(ai_base() + "/messages", abody, ahdrs)
+            let aj be from_json(ar["body"])
+            if "content" is in aj
+                give back "Connected - " + ai["provider"] + " / " + mdl + " responded."
+            end
+            give back "Failed (HTTP " + text(ar["status"]) + "): " + api_error_text(aj, ar["status"])
+        end
+        let body be {"model": mdl, "max_tokens": 5, "messages": [{"role": "user", "content": "ping"}]}
+        let hdrs be {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
+        let r be http_post(ai_base() + "/chat/completions", body, hdrs)
+        let j be from_json(r["body"])
+        if "choices" is in j
+            give back "Connected - " + ai["provider"] + " / " + mdl + " responded."
+        end
+        give back "Failed (HTTP " + text(r["status"]) + "): " + api_error_text(j, r["status"])
+    rescue e
+        give back "Failed: " + e
+    end
+end
+
+to empty_reply_msg(where)
+    give back "The AI returned an empty response" + where + ". This usually means a 'thinking'/reasoning model used its whole token budget reasoning. Switch to a standard (non-thinking) model in Settings - e.g. gpt-oss:20b, gpt-oss:120b, openai/gpt-4o, google/gemini-2.5-flash, or claude-sonnet-4.6."
+end
+
+# One generic AI chat call, routed by provider. Returns the reply text.
+to ai_chat(sys, user)
+    if ai["key"] is ""
+        give back "Add an API key in Settings to use AI features."
+    end
+    let key be ai["key"]
+    let mdl be ai["model"]
+    let where be " (" + ai["provider"] + " / " + mdl + ")"
+    attempt
+        if ai["provider"] is "anthropic"
+            let abody be {"model": mdl, "max_tokens": 2000, "system": sys, "messages": [{"role": "user", "content": user}]}
+            let ahdrs be {"x-api-key": key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"}
+            let ar be http_post(ai_base() + "/messages", abody, ahdrs)
+            let aj be from_json(ar["body"])
+            if "content" is in aj and length(aj["content"]) is over 0
+                let txt be aj["content"][0]["text"]
+                if trim(txt) is not ""
+                    give back txt
+                end
+                give back empty_reply_msg(where)
+            end
+            give back "The AI request failed" + where + ": " + api_error_text(aj, ar["status"])
+        end
+        let body be {"model": mdl, "max_tokens": 2000, "messages": [{"role": "system", "content": sys}, {"role": "user", "content": user}]}
+        let hdrs be {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
+        let r be http_post(ai_base() + "/chat/completions", body, hdrs)
+        let j be from_json(r["body"])
+        if "choices" is in j and length(j["choices"]) is over 0
+            let msg be j["choices"][0]["message"]
+            let content be ""
+            if "content" is in msg and msg["content"] is not nothing
+                change content to text(msg["content"])
+            end
+            if trim(content) is "" and "reasoning" is in msg and msg["reasoning"] is not nothing
+                change content to text(msg["reasoning"])
+            end
+            if trim(content) is not ""
+                give back content
+            end
+            give back empty_reply_msg(where)
+        end
+        give back "The AI request failed" + where + ": " + api_error_text(j, r["status"])
+    rescue e
+        give back "The AI request failed" + where + ": " + e
+    end
+end
+
+to meta_context()
+    let meta be fetch_meta()
+    let context be ""
+    for each row in meta["top"][0:10]
+        let nm be row["name"]
+        change context to context + nm + ", "
+    end
+    give back context
+end
+
+to ai_analyze(question)
+    let sys be "You are a Yu-Gi-Oh! Master Duel meta expert. Give concise, practical advice on counters, tech cards, matchups and deck-building. The current live meta (most-played archetypes) is: " + meta_context()
+    give back ai_chat(sys, question)
+end
+
+# Build (or brew) a full decklist the player can craft in-game.
+to ai_deck(idea, game, unique)
+    let sys be ""
+    if unique
+        change sys to "You are a creative Yu-Gi-Oh deck brewer for " + game + ". Design an ORIGINAL, off-meta rogue deck almost nobody plays by COMBINING EXISTING real cards in an unexpected way - e.g. pairing two real archetypes or reviving an underused real engine. Do NOT invent new cards or new archetype names; the originality comes from the combination, not from made-up cards. Give the deck a catchy nickname."
+    otherwise
+        change sys to "You are an expert Yu-Gi-Oh deck builder for " + game + ". Build a complete, legal, competitive decklist within that game's card pool and current banlist."
+    end
+    change sys to sys + " Build a COMPLETE, tournament-legal deck: the MAIN DECK must total 40 cards (the counts must add up to 40 - around 17 monsters, a healthy mix of spells and traps), plus an EXTRA DECK of 12-15 cards (Fusion/Synchro/Xyz/Link). CRITICAL RULE: every single card must be a REAL, already-printed Yu-Gi-Oh card that actually exists and is obtainable in " + game + " right now. NEVER invent, rename, or guess at card names - if you are unsure a card is real, do not use it. Use only exact official TCG English names (for example 'Unexpected Dai', not 'Unexpected Guy'). Do not list generic placeholders like 'Normal monster'. FORMAT: print a line 'MAIN DECK', then every main-deck card on its OWN line as 'Nx Exact Official English Card Name', then a line 'EXTRA DECK', then every extra-deck card the same way (precise names only - no rarities, sets, arrows, or notes on card lines). After both lists, add a short 'Gameplan' section. Output ONLY the final deck and gameplan - do NOT show your reasoning, alternatives, corrections, or arrows. Consider today's meta: " + meta_context()
+    let user be idea
+    if length(trim(idea)) is 0
+        change user to "Build a strong, fun deck."
+    end
+    give back ai_chat(sys, user)
+end
+
+# Names in a decklist that don't resolve to a real card (after fuzzy).
+to unresolved_names(decktext)
+    let parsed be parse_decklist(decktext)
+    let names be []
+    for each c in parsed
+        add c["name"] to names
+    end
+    let ids be card_ids(names)
+    let bad be []
+    for each c in parsed
+        if not (c["name"] is in ids)
+            add c["name"] to bad
+        end
+    end
+    give back bad
+end
+
+# Ask the AI to swap any invalid cards for real ones, keeping the format.
+to ai_fix_deck(decktext, bad, game)
+    let sys be "You are a Yu-Gi-Oh deck doctor for " + game + ". You are given a decklist where some entries are not real cards. Silently replace each invalid entry with a REAL, already-printed card (exact official English name) that fits the strategy and works in " + game + "; keep all valid cards. The result must still be a complete deck: 40 Main Deck cards (counts adding to 40) and 12-15 Extra Deck cards. OUTPUT RULES - output ONLY the final clean decklist and gameplan. Reprint the WHOLE deck from scratch: a 'MAIN DECK' line, each card as 'Nx Exact Card Name', an 'EXTRA DECK' line, each card the same way, then a 'Gameplan' section. Do NOT show what you changed: no arrows (->), no 'Correction', no 'replacing', no 'Duplicate', no 'Wait', no commentary on any card line - just the final clean list."
+    let user be "These entries are not real cards: " + join(bad, ", ") + ". Rewrite the full corrected deck.\n\nDecklist:\n" + decktext
+    give back ai_chat(sys, user)
+end
+
+# Build a deck. To stay within the browser/server timeout we make ONE AI call,
+# then at most ONE quick repair pass - and only if that first call was fast (a
+# slow model already used most of the time budget; a 2nd call would freeze the
+# single-threaded server long enough to look like "can't reach server").
+to ai_deck_validated(idea, game, unique)
+    let t0 be now()
+    let result be ai_deck(idea, game, unique)
+    let elapsed be now() - t0
+    if "request failed" is in result
+        give back result
+    end
+    if elapsed is over 12
+        give back result
+    end
+    let bad be unresolved_names(result)
+    if length(bad) is over 0
+        let fixed be ai_fix_deck(result, bad, game)
+        if "request failed" is not in fixed
+            let newbad be unresolved_names(fixed)
+            if length(newbad) is at most length(bad)
+                change result to fixed
+            end
+        end
+    end
+    give back result
+end
+
+# Pull "Nx Card Name" lines out of an AI reply into {name, amount, zone} entries.
+to parse_decklist(textval)
+    let out be []
+    let zone be "main"
+    let active be yes
+    for each line in split(textval, "\n")
+        let t be trim(line)
+        let low be lowercase(t)
+        # Header/prose lines (not starting with a count) switch sections.
+        if length(t) is 0 or not (t[0] is in "0123456789")
+            if "extra deck" is in low
+                change zone to "extra"
+                change active to yes
+            end
+            if "main deck" is in low
+                change zone to "main"
+                change active to yes
+            end
+            if "gameplan" is in low or "game plan" is in low or "combo" is in low or "strategy" is in low or "how it" is in low or "how to" is in low or "win con" is in low or "key card" is in low or "notes" is in low
+                change active to no
+            end
+        end
+        if active and length(t) is over 1 and t[0] is in "0123456789"
+            let i be 0
+            while i is under length(t) and t[i] is in "0123456789"
+                change i to i + 1
+            end
+            let amt be number(t[0:i])
+            let rest be trim(t[i:length(t)])
+            if length(rest) is over 0 and (rest[0] is "x" or rest[0] is "X")
+                change rest to trim(rest[1:length(rest)])
+            end
+            # cut off any trailing reasoning the model may append after the name
+            change rest to trim(split(rest, " (")[0])
+            change rest to trim(split(rest, " ->")[0])
+            change rest to trim(split(rest, " →")[0])
+            # skip lines that are clearly commentary, not a card
+            let restl be lowercase(rest)
+            let reasoning be no
+            if "correction" is in restl or "replacing" is in restl or "duplicate" is in restl or "wait" is in restl or "total" is in restl
+                change reasoning to yes
+            end
+            if not reasoning and length(rest) is over 1 and amt is at least 1 and amt is at most 3
+                add {"name": rest, "amount": amt, "zone": zone} to out
+            end
+        end
+    end
+    give back out
+end
+
+# One clickable card tile. cid 0 -> a card-shaped "no art" placeholder.
+# A real Yu-Gi-Oh card-back image with the name overlaid - used whenever a name
+# can't be matched to real art, so a slot is never blank.
+to card_back_tile(nm, amt, w)
+    let badge be ""
+    if amt is not nothing
+        change badge to "<span class='amt'>" + text(amt) + "</span>"
+    end
+    give back "<div class='cardback' style='width:" + text(w) + "px' title='" + html_escape(nm) + " - no card art found'><img loading='lazy' src='" + CARD_BACK + "' alt='" + html_escape(nm) + "'><span class='cbname'>" + html_escape(nm) + "</span>" + badge + "</div>"
+end
+
+to card_tile(cid, nm, amt)
+    let badge be ""
+    if amt is not nothing
+        change badge to "<span class='amt'>" + text(amt) + "</span>"
+    end
+    if cid is 0
+        give back card_back_tile(nm, amt, 72)
+    end
+    give back "<div class='cardimg' data-id='" + text(cid) + "' data-name='" + html_escape(nm) + "' title='" + html_escape(nm) + " - click to read'><img loading='lazy' src='https://images.ygoprodeck.com/images/cards_small/" + text(cid) + ".jpg' alt='" + html_escape(nm) + "'>" + badge + "</div>"
+end
+
+to cards_row(list, ids)
+    let h be "<div class='cards'>"
+    for each c in list
+        let nm be c["name"]
+        let amt be c["amount"]
+        if nm is in ids
+            change h to h + card_tile(ids[nm], nm, amt)
+        otherwise
+            change h to h + card_tile(0, nm, amt)
+        end
+    end
+    change h to h + "</div>"
+    give back h
+end
+
+to decklist_art(parsed, ids)
+    let main be []
+    let extra be []
+    for each c in parsed
+        if c["zone"] is "extra"
+            add c to extra
+        otherwise
+            add c to main
+        end
+    end
+    let h be ""
+    if length(main) is over 0
+        change h to h + "<h3 class='dsec'>Main Deck</h3>" + cards_row(main, ids)
+    end
+    if length(extra) is over 0
+        change h to h + "<h3 class='dsec'>Extra Deck</h3>" + cards_row(extra, ids)
+    end
+    give back h
+end
+
+# Sensible defaults per provider when a live list can't be fetched.
+to curated_models(prov)
+    if prov is "ollama-cloud"
+        give back ["gpt-oss:120b", "gpt-oss:20b", "deepseek-v3.1:671b", "qwen3-coder:480b", "kimi-k2:1t", "glm-4.6", "minimax-m2", "qwen3-vl:235b", "gemma3:27b"]
+    end
+    if prov is "anthropic"
+        give back ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]
+    end
+    if prov is "nvidia"
+        give back ["meta/llama-3.1-405b-instruct", "deepseek-ai/deepseek-r1", "qwen/qwen2.5-coder-32b-instruct"]
+    end
+    give back ["anthropic/claude-sonnet-4.6", "openai/gpt-4o", "google/gemini-2.5-flash"]
+end
+
+# Live model list for the CURRENT provider (OpenAI-compatible /models), cached
+# per provider. OpenRouter + Ollama Cloud are public; nvidia/anthropic use the key.
+let models_cache be {}
+to provider_models()
+    let prov be ai["provider"]
+    if prov is in models_cache
+        give back models_cache[prov]
+    end
+    let url be "https://openrouter.ai/api/v1/models"
+    let hdrs be {"User-Agent": UA}
+    if prov is "ollama-cloud"
+        change url to "https://ollama.com/v1/models"
+    end
+    if prov is "nvidia"
+        change url to "https://integrate.api.nvidia.com/v1/models"
+        if ai["key"] is not ""
+            change hdrs to {"User-Agent": UA, "Authorization": "Bearer " + ai["key"]}
+        end
+    end
+    if prov is "anthropic"
+        change url to "https://api.anthropic.com/v1/models"
+        if ai["key"] is not ""
+            change hdrs to {"User-Agent": UA, "x-api-key": ai["key"], "anthropic-version": "2023-06-01"}
+        end
+    end
+    let out be []
+    attempt
+        let r be http_get(url, hdrs)
+        if r["status"] is 200
+            let data be from_json(r["body"])["data"]
+            for each m in data
+                add m["id"] to out
+            end
+            change out to sort(out)
+        end
+    rescue e
+        change out to []
+    end
+    if length(out) is over 0
+        let pk be prov
+        change models_cache at pk to out
+        give back out
+    end
+    give back curated_models(prov)
+end
+
+# ---- page chrome -----------------------------------------------------
+to styles()
+    let s be ""
+    change s to s + "*{{box-sizing:border-box}}"
+    change s to s + "body{{margin:0;background:#0a0c14;color:#e7e9f0;font-family:'Trebuchet MS',Verdana,sans-serif;line-height:1.6}}"
+    change s to s + "a{{color:#c9a227;text-decoration:none}}"
+    change s to s + "nav{{display:flex;flex-wrap:wrap;gap:18px;align-items:center;padding:16px 26px;background:#0d1020;border-bottom:1px solid #1d2540;position:sticky;top:0;z-index:9}}"
+    change s to s + "nav a{{color:#aab2d0;font-size:15px;letter-spacing:.4px}}"
+    change s to s + "nav a:hover{{color:#e7d9a0}}"
+    change s to s + "nav .brand{{font-size:21px;font-weight:bold;letter-spacing:2px;color:#c9a227;margin-right:auto;text-shadow:0 0 18px rgba(201,162,39,.4)}}"
+    change s to s + "main{{max-width:920px;margin:0 auto;padding:30px 26px 80px}}"
+    change s to s + "h1{{font-size:30px;color:#e7d9a0;margin:.2em 0 .3em}}"
+    change s to s + "h2{{font-size:21px;color:#c9a227;margin:1.4em 0 .4em;border-bottom:1px solid #1d2540;padding-bottom:6px}}"
+    change s to s + ".lede{{font-size:17px;color:#aab2d0}}"
+    change s to s + ".badge{{display:inline-block;font-size:12px;padding:3px 10px;border-radius:999px;letter-spacing:1px}}"
+    change s to s + ".live{{background:#16351f;color:#7fe0a0;border:1px solid #2b6b40}}"
+    change s to s + ".snap{{background:#3a2a12;color:#e7b25a;border:1px solid #6b4d1f}}"
+    change s to s + ".card{{background:#0f1428;border:1px solid #1d2540;border-radius:14px;padding:18px 20px;margin:14px 0}}"
+    change s to s + ".row{{display:flex;align-items:center;gap:12px;margin:8px 0}}"
+    change s to s + ".bar{{height:22px;border-radius:6px;background:linear-gradient(90deg,#c9a227,#8a6d12);min-width:6px}}"
+    change s to s + ".rank{{color:#6f779a;width:26px;text-align:right;font-variant-numeric:tabular-nums}}"
+    change s to s + ".aname{{min-width:150px;font-weight:bold;color:#e7e9f0}}"
+    change s to s + ".tier{{font-weight:bold;color:#0a0c14;background:#c9a227;border-radius:6px;padding:1px 9px;font-size:14px}}"
+    change s to s + ".pill{{display:inline-block;background:#16203c;border:1px solid #26345e;border-radius:999px;padding:4px 11px;margin:3px 4px 3px 0;font-size:13px;color:#cfd6ee}}"
+    change s to s + ".tech{{border-color:#2b6b40;color:#9fe0b6}}"
+    change s to s + ".note{{color:#6f779a;font-size:13px}}"
+    change s to s + ".dsec{{font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#8a93b5;margin:16px 0 6px;font-weight:bold}}"
+    change s to s + ".cards{{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;margin:8px 0 16px}}"
+    change s to s + ".cardimg{{position:relative;width:72px;cursor:pointer;border-radius:5px;transition:transform .13s ease,box-shadow .13s ease}}"
+    change s to s + ".cardimg img{{width:72px;border-radius:5px;display:block;box-shadow:0 3px 10px rgba(0,0,0,.5)}}"
+    change s to s + ".cardimg:hover{{transform:translateY(-5px) scale(1.05);z-index:3}}"
+    change s to s + ".cardimg:hover img{{box-shadow:0 14px 28px rgba(0,0,0,.65),0 0 0 2px #c9a227}}"
+    change s to s + ".cardimg .amt{{position:absolute;bottom:4px;right:4px;background:#0a0c14e6;color:#e7d9a0;font-size:12px;font-weight:bold;padding:0 6px;border-radius:6px;border:1px solid #c9a22799;pointer-events:none}}"
+    change s to s + ".cardph{{position:relative;width:72px;height:105px;background:repeating-linear-gradient(135deg,#121a30,#121a30 7px,#141d38 7px,#141d38 14px);border:1px dashed #36406b;border-radius:5px;display:flex;align-items:center;justify-content:center;text-align:center;padding:6px}}"
+    change s to s + ".cardph .phn{{font-size:10.5px;color:#8a93b5;line-height:1.25}}"
+    change s to s + ".cardph .amt{{position:absolute;bottom:4px;right:4px;background:#0a0c14e6;color:#8a93b5;font-size:11px;font-weight:bold;padding:0 5px;border-radius:6px;border:1px solid #36406b}}"
+    change s to s + ".cardback{{position:relative;flex:none}}"
+    change s to s + ".cardback img{{width:100%;border-radius:5px;display:block;box-shadow:0 3px 10px rgba(0,0,0,.5)}}"
+    change s to s + ".cardback .cbname{{position:absolute;left:5px;right:5px;top:50%;transform:translateY(-50%);text-align:center;font-size:10.5px;font-weight:bold;color:#f3e6c0;text-shadow:0 1px 3px #000,0 0 6px #000;line-height:1.2}}"
+    change s to s + ".cardback .amt{{position:absolute;bottom:4px;right:4px;background:#0a0c14e6;color:#e7d9a0;font-size:12px;font-weight:bold;padding:0 6px;border-radius:6px;border:1px solid #c9a22799}}"
+    change s to s + ".hero{{padding:4px 0 8px}}"
+    change s to s + ".grid-cards{{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin:16px 0}}"
+    change s to s + ".metacard{{display:flex;gap:14px;align-items:center;background:#0f1428;border:1px solid #1d2540;border-radius:14px;padding:12px 14px;transition:transform .15s,border-color .2s,box-shadow .2s}}"
+    change s to s + ".metacard:hover{{transform:translateY(-3px);border-color:#c9a227;box-shadow:0 12px 30px rgba(0,0,0,.45)}}"
+    change s to s + ".mc-art{{flex:none;width:62px}}"
+    change s to s + ".mc-art img{{width:62px;border-radius:5px;display:block;box-shadow:0 3px 10px rgba(0,0,0,.5)}}"
+    change s to s + ".mc-info{{flex:1;min-width:0}}"
+    change s to s + ".mc-head{{display:flex;align-items:center;gap:8px}}"
+    change s to s + ".mc-name{{font-size:17px;font-weight:bold;color:#e7e9f0;margin:2px 0}}"
+    change s to s + ".mc-bar-bg{{height:8px;background:#16203c;border-radius:6px;overflow:hidden;margin:5px 0}}"
+    change s to s + ".mc-bar{{height:8px;background:linear-gradient(90deg,#c9a227,#f0d480);border-radius:6px}}"
+    change s to s + ".mc-note{{color:#6f779a;font-size:12px}}"
+    change s to s + ".mc-counter{{color:#e7b25a;font-size:12px;margin-top:2px}}"
+    change s to s + ".tS{{background:#ff6b6b}}.tA{{background:#c9a227}}.tB{{background:#9aa7c7}}.tC{{background:#b0762f}}"
+    change s to s + ".chips{{display:flex;flex-wrap:wrap;gap:11px;margin:8px 0}}"
+    change s to s + ".cardchip{{width:88px;text-align:center}}"
+    change s to s + ".cardchip[data-id]{{cursor:pointer}}"
+    change s to s + ".cardchip[data-id]:hover img{{box-shadow:0 10px 22px rgba(0,0,0,.6),0 0 0 2px #c9a227;transform:translateY(-3px)}}"
+    change s to s + ".cardchip img{{width:88px;border-radius:5px;display:block;box-shadow:0 3px 10px rgba(0,0,0,.5);transition:transform .13s,box-shadow .13s}}"
+    change s to s + ".cardchip .cn{{display:block;font-size:11px;color:#aab2d0;margin-top:3px;line-height:1.2}}"
+    change s to s + ".cardchip .ans{{display:block;font-size:11px;color:#e7b25a;font-weight:bold}}"
+    change s to s + ".noart{{width:88px;height:128px;background:#121a30;border:1px dashed #2b3a66;border-radius:5px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:11px;color:#8a93b5;padding:6px;line-height:1.25}}"
+    change s to s + ".concept{{width:88px;min-height:128px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:linear-gradient(165deg,#1b1536,#15122a);border:1px solid #5a3aa0;border-radius:7px;padding:8px;text-align:center}}"
+    change s to s + ".concept .ci{{font-size:9px;letter-spacing:1.5px;font-weight:bold;color:#9a7ad0;border:1px solid #5a3aa0;border-radius:5px;padding:1px 6px}}"
+    change s to s + ".concept .cl{{font-size:12px;color:#d6c8f5;line-height:1.25}}"
+    change s to s + "input,select,textarea{{font:inherit;font-size:15px;padding:10px 12px;background:#0a0c14;color:#e7e9f0;border:1px solid #26345e;border-radius:9px}}"
+    change s to s + "textarea{{width:100%;min-height:90px}}"
+    change s to s + "button{{font:inherit;font-size:15px;padding:10px 18px;background:#c9a227;color:#0a0c14;border:0;border-radius:9px;font-weight:bold;cursor:pointer}}"
+    change s to s + "form{{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0;align-items:center}}"
+    change s to s + "table{{border-collapse:collapse;width:100%;margin:12px 0}}"
+    change s to s + "td,th{{text-align:left;padding:8px 12px;border-bottom:1px solid #1d2540}}"
+    change s to s + "th{{color:#6f779a;font-size:12px;letter-spacing:1px;text-transform:uppercase}}"
+    change s to s + ".big{{font-size:18px;color:#e7d9a0}}"
+    change s to s + ".dbform input[name=idea]{{flex:1;min-width:240px}}"
+    change s to s + "button.alt{{background:#2a1a4a;color:#d8c8ff;border:1px solid #5a3aa0}}"
+    change s to s + ".dlist{{white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;font-size:13px;line-height:1.5;color:#cdd3e6;margin:0}}"
+    change s to s + "footer{{text-align:center;color:#4f567a;padding:30px;border-top:1px solid #1d2540}}"
+    change s to s + ".cmodal{{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(4,6,12,.78);backdrop-filter:blur(6px)}}"
+    change s to s + ".cmodal.open{{display:flex;animation:cmfade .18s ease}}"
+    change s to s + "@keyframes cmfade{{from{{opacity:0}}to{{opacity:1}}}}"
+    change s to s + ".cmbox{{position:relative;display:flex;gap:24px;max-width:720px;width:100%;background:linear-gradient(160deg,#10162c,#0b0f1e);border:1px solid #2b3a66;border-radius:18px;padding:26px;box-shadow:0 30px 80px rgba(0,0,0,.7);animation:cmpop .2s ease}}"
+    change s to s + "@keyframes cmpop{{from{{transform:translateY(14px) scale(.97);opacity:0}}to{{transform:none;opacity:1}}}}"
+    change s to s + ".cmimg{{width:240px;flex:none;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.6);align-self:flex-start}}"
+    change s to s + ".cminfo{{flex:1;min-width:0}}"
+    change s to s + ".cminfo h3{{margin:.1em 0 .3em;color:#e7d9a0;font-size:22px}}"
+    change s to s + ".cmmeta{{color:#7fa6e0;font-size:13px;font-weight:bold;letter-spacing:.4px;margin-bottom:12px;border-bottom:1px solid #1d2540;padding-bottom:10px}}"
+    change s to s + ".cmdesc{{color:#cdd3e6;font-size:14.5px;line-height:1.6;white-space:pre-wrap;max-height:52vh;overflow:auto;margin:0}}"
+    change s to s + ".cmx{{position:absolute;top:12px;right:16px;font-size:26px;line-height:1;color:#8a93b5;cursor:pointer;transition:color .12s}}"
+    change s to s + ".cmx:hover{{color:#e7d9a0}}"
+    change s to s + "@media(max-width:620px){{.cmbox{{flex-direction:column;align-items:center}}.cmimg{{width:180px}}}}"
+    give back s
+end
+
+to nav()
+    let n be "<nav><a class='brand' href='/'>TOPDECK</a>"
+    change n to n + "<a href='/'>Meta</a>"
+    change n to n + "<a href='/decks'>Top Decks</a>"
+    change n to n + "<a href='/analyze'>Analyze</a>"
+    change n to n + "<a href='/counters'>Counters</a>"
+    change n to n + "<a href='/build'>Builder</a>"
+    change n to n + "<a href='/deckbuild'>Auto-Build</a>"
+    change n to n + "<a href='/ai'>AI</a>"
+    change n to n + "<a href='/settings'>Settings</a></nav>"
+    give back n
+end
+
+# Click-to-read card lightbox: any element with data-id opens it.
+to modal_html()
+    let h be "<div id='cardmodal' class='cmodal'><div class='cmbox'><span id='cmx' class='cmx'>&times;</span><img id='cmimg' class='cmimg' alt=''><div class='cminfo'><h3 id='cmname'></h3><div id='cmmeta' class='cmmeta'></div><p id='cmdesc' class='cmdesc'></p></div></div></div>"
+    change h to h + "<script>"
+    change h to h + "(function(){{"
+    change h to h + "var m=document.getElementById('cardmodal');"
+    change h to h + "function cl(){{m.className='cmodal';}}"
+    change h to h + "function op(id,nm){{"
+    change h to h + "document.getElementById('cmimg').src='https://images.ygoprodeck.com/images/cards/'+id+'.jpg';"
+    change h to h + "document.getElementById('cmname').textContent=nm||'';"
+    change h to h + "document.getElementById('cmmeta').textContent='';"
+    change h to h + "document.getElementById('cmdesc').textContent='Loading card text...';"
+    change h to h + "m.className='cmodal open';"
+    change h to h + "fetch('/api/card?id='+id).then(function(r){{return r.json();}}).then(function(d){{"
+    change h to h + "if(d.name){{document.getElementById('cmname').textContent=d.name;}}"
+    change h to h + "document.getElementById('cmmeta').textContent=d.meta||'';"
+    change h to h + "document.getElementById('cmdesc').textContent=d.desc||'No card text available.';"
+    change h to h + "}}).catch(function(){{document.getElementById('cmdesc').textContent='Could not load card text.';}});"
+    change h to h + "}}"
+    change h to h + "document.addEventListener('click',function(e){{"
+    change h to h + "var c=e.target.closest('[data-id]');"
+    change h to h + "if(c){{op(c.getAttribute('data-id'),c.getAttribute('data-name'));return;}}"
+    change h to h + "if(e.target===m||e.target.id==='cmx'){{cl();}}"
+    change h to h + "}});"
+    change h to h + "document.addEventListener('keydown',function(e){{if(e.key==='Escape'){{cl();}}}});"
+    change h to h + "}})();"
+    change h to h + "</script>"
+    give back h
+end
+
+to page(title, body)
+    let h be "<!doctype html><html><head><meta charset='utf-8'>"
+    change h to h + "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    change h to h + "<title>" + title + " - Topdeck</title><style>" + styles() + "</style></head><body>"
+    change h to h + nav() + "<main>" + body + "</main>"
+    change h to h + "<footer>Topdeck - a Master Duel meta analyzer, written in Vanta. Meta data via masterduelmeta.com (unofficial).</footer>"
+    change h to h + modal_html() + "</body></html>"
+    give back h
+end
+
+to source_badge()
+    if meta_source is "live"
+        give back "<span class='badge live'>LIVE DATA</span>"
+    end
+    give back "<span class='badge snap'>SNAPSHOT (API unavailable)</span>"
+end
+
+# ---- pages -----------------------------------------------------------
+to meta_body()
+    let meta be fetch_meta()
+    let top be meta["top"]
+    let decks be meta["decks"]
+    let shown be top[0:18]
+    # derive a face card for each archetype, then one image lookup for all
+    let faces be {}
+    let names be []
+    for each row in shown
+        let arche be row["name"]
+        let fn be face_name(arche, decks)
+        if fn is not nothing
+            let fk be arche
+            change faces at fk to fn
+            add fn to names
+        end
+    end
+    let ids be card_ids(names)
+    let maxc be 1
+    if length(shown) is over 0
+        change maxc to shown[0]["count"]
+    end
+    let b be "<div class='hero'><h1>The Current Meta " + source_badge() + "</h1>"
+    change b to b + "<p class='lede'>What the community is playing right now - ranked by how often each archetype shows up in the latest submitted decks.</p></div>"
+    change b to b + "<div class='grid-cards'>"
+    let i be 0
+    for each row in shown
+        change i to i + 1
+        let arche be row["name"]
+        let ct be row["count"]
+        let w be floor(ct * 100 / maxc)
+        let art be ""
+        if arche is in faces
+            let fn be faces[arche]
+            if fn is in ids
+                let cid be ids[fn]
+                change art to "<div class='mc-art'><img loading='lazy' src='https://images.ygoprodeck.com/images/cards_small/" + text(cid) + ".jpg' alt=''></div>"
+            end
+        end
+        let tlabel be "?"
+        let tcls be "tC"
+        let counter be ""
+        if arche is in kb
+            change tlabel to kb[arche]["tier"]
+            change tcls to tier_class(tlabel)
+            let wt be kb[arche]["weak_to"]
+            if length(wt) is over 0
+                change counter to "<div class='mc-counter'>weak to " + html_escape(trim(wt[0])) + "</div>"
+            end
+        end
+        change b to b + "<a class='metacard' href='/analyze?deck=" + url_encode(arche) + "'>" + art
+        change b to b + "<div class='mc-info'><div class='mc-head'><span class='rank'>#" + text(i) + "</span><span class='tier " + tcls + "'>" + tlabel + "</span></div>"
+        change b to b + "<div class='mc-name'>" + html_escape(arche) + "</div>"
+        change b to b + "<div class='mc-bar-bg'><div class='mc-bar' style='width:" + text(w) + "%'></div></div>"
+        change b to b + "<div class='mc-note'>" + text(ct) + " recent decks</div>" + counter + "</div></a>"
+    end
+    change b to b + "</div>"
+    change b to b + "<p class='note'>Tap any deck for its full breakdown. See <a href='/counters'>Counters</a> for the cards that beat the most of this list, or the <a href='/build'>Builder</a> to analyze your own.</p>"
+    give back b
+end
+
+# YGOPRODeck name -> card id, cached across requests so browsing stays fast.
+let id_cache be {}
+
+# ---- full card index: one bulk fetch -> local, precise name matching --------
+let card_index be {}
+let tok_index be {}
+let id_norm be {}
+let index_loaded be no
+
+# lowercase + strip every non-alphanumeric char to single spaces (so punctuation,
+# quotes, colons and commas can't cause a miss). "Maxx \"C\"" -> "maxx c".
+to normalize(s)
+    let low be lowercase(s)
+    let out be ""
+    let prevspace be yes
+    let i be 0
+    while i is under length(low)
+        let ch be low[i]
+        if ch is in "abcdefghijklmnopqrstuvwxyz0123456789"
+            change out to out + ch
+            change prevspace to no
+        otherwise
+            if not prevspace
+                change out to out + " "
+                change prevspace to yes
+            end
+        end
+        change i to i + 1
+    end
+    give back trim(out)
+end
+
+# load the entire YGOPRODeck card list once; build normalized name->id, a word
+# index (words len>=5), and id->normalized-name. Cached for the server's life.
+to load_card_index()
+    if index_loaded
+        give back nothing
+    end
+    change index_loaded to yes
+    attempt
+        let r be http_get("https://db.ygoprodeck.com/api/v7/cardinfo.php", {"User-Agent": UA})
+        if r["status"] is 200
+            let data be from_json(r["body"])["data"]
+            for each c in data
+                let id be c["id"]
+                let norm be normalize(c["name"])
+                change card_index at norm to id
+                let ik be id
+                change id_norm at ik to norm
+                for each w in split(norm, " ")
+                    if length(w) is at least 5
+                        if w is in tok_index
+                            add id to tok_index[w]
+                        otherwise
+                            let wk be w
+                            change tok_index at wk to [id]
+                        end
+                    end
+                end
+            end
+        end
+    rescue e
+        change index_loaded to yes
+    end
+end
+
+# the up-to-2 longest distinctive words (len>=5) of a normalized name
+to longest_words(words)
+    let a be ""
+    let b be ""
+    for each w in words
+        if length(w) is at least 5
+            if length(w) is over length(a)
+                change b to a
+                change a to w
+            otherwise
+                if length(w) is over length(b)
+                    change b to w
+                end
+            end
+        end
+    end
+    let out be []
+    if a is not ""
+        add a to out
+    end
+    if b is not ""
+        add b to out
+    end
+    give back out
+end
+
+# how many distinctive (len>=4) query words appear in a candidate's words
+to overlap(qwords, cnorm)
+    let cw be split(cnorm, " ")
+    let sc be 0
+    for each q in qwords
+        if length(q) is at least 4
+            for each c in cw
+                if c is q
+                    change sc to sc + 1
+                end
+            end
+        end
+    end
+    give back sc
+end
+
+# does the candidate contain EVERY query word (len>=3)? - catches shorthand like
+# "Ash Blossom" inside "Ash Blossom & Joyous Spring".
+to contains_all(qwords, cnorm)
+    let cw be split(cnorm, " ")
+    for each q in qwords
+        if length(q) is at least 3
+            let found be no
+            for each c in cw
+                if c is q
+                    change found to yes
+                end
+            end
+            if not found
+                give back no
+            end
+        end
+    end
+    give back yes
+end
+
+# name -> id using the local index: exact-normalized, then a bounded token-overlap
+# match for near-misses (e.g. an AI typo). 0 when nothing matches well.
+to resolve_name(name)
+    load_card_index()
+    if length(card_index) is 0
+        give back fuzzy_one(name)
+    end
+    let norm be normalize(name)
+    if norm is in card_index
+        give back card_index[norm]
+    end
+    let qwords be split(norm, " ")
+    let candidates be []
+    for each w in longest_words(qwords)
+        if w is in tok_index
+            let lst be tok_index[w]
+            if length(lst) is at most 150
+                for each id in lst
+                    add id to candidates
+                end
+            end
+        end
+    end
+    let best be 0
+    let bestrank be 0
+    for each id in candidates
+        let ik be id
+        let cnorm be id_norm[ik]
+        let ov be overlap(qwords, cnorm)
+        let sub be 0
+        if contains_all(qwords, cnorm)
+            change sub to 1
+        end
+        let ok be no
+        if ov is at least 2
+            change ok to yes
+        end
+        if sub is 1 and length(qwords) is at least 2
+            change ok to yes
+        end
+        let rank be ov + sub * 2
+        if ok and rank is over bestrank
+            change bestrank to rank
+            change best to id
+        end
+    end
+    give back best
+end
+
+# Fuzzy name search - finds the closest real card when the exact name misses.
+to fuzzy_one(query)
+    attempt
+        let url be "https://db.ygoprodeck.com/api/v7/cardinfo.php?fname=" + url_encode(query)
+        let r be http_get(url, {"User-Agent": UA})
+        if r["status"] is 200
+            let data be from_json(r["body"])["data"]
+            if length(data) is over 0
+                let best be data[0]["id"]
+                let want be lowercase(query)
+                for each c in data
+                    if lowercase(c["name"]) is want
+                        change best to c["id"]
+                    end
+                end
+                give back best
+            end
+        end
+    rescue e
+        give back 0
+    end
+    give back 0
+end
+
+to fuzzy_id(name)
+    let id be fuzzy_one(name)
+    if id is not 0
+        give back id
+    end
+    let words be split(name, " ")
+    if length(words) is over 2
+        change id to fuzzy_one(join(words[0:length(words) - 1], " "))
+    end
+    give back id
+end
+
+to card_ids(names)
+    load_card_index()
+    for each n in names
+        if not (n is in id_cache)
+            let nk be n
+            change id_cache at nk to resolve_name(n)
+        end
+    end
+    let out be {}
+    for each n in names
+        if n is in id_cache and id_cache[n] is not 0
+            let ok be n
+            change out at ok to id_cache[n]
+        end
+    end
+    give back out
+end
+
+# Full card detail (name, rules text, stat line) by id - cached.
+let card_meta be {}
+to fetch_card(cid)
+    let k be text(cid)
+    if k is in card_meta
+        give back card_meta[k]
+    end
+    let nm be ""
+    let ds be ""
+    let mt be ""
+    attempt
+        let url be "https://db.ygoprodeck.com/api/v7/cardinfo.php?id=" + k
+        let r be http_get(url, {"User-Agent": UA})
+        if r["status"] is 200
+            let c be from_json(r["body"])["data"][0]
+            change nm to c["name"]
+            change ds to c["desc"]
+            change mt to c["type"]
+            if "race" is in c
+                change mt to mt + " - " + c["race"]
+            end
+            if "atk" is in c
+                change mt to mt + "   ATK " + text(c["atk"]) + " / DEF " + text(c["def"])
+            end
+        end
+    rescue e
+        change ds to ds
+    end
+    let val be {"name": nm, "desc": ds, "meta": mt}
+    change card_meta at k to val
+    give back val
+end
+
+to tier_class(t)
+    if t is "S"
+        give back "tS"
+    end
+    if t is "A"
+        give back "tA"
+    end
+    if t is "B"
+        give back "tB"
+    end
+    give back "tC"
+end
+
+# pick a representative card name for an archetype, from the live decks
+to face_name(arche, decks)
+    for each d in decks
+        let dt be d["deckType"]
+        if dt is not nothing and dt["name"] is arche
+            for each c in d["main"]
+                let cm be c["card"]
+                if lowercase(arche) is in lowercase(cm["name"])
+                    give back cm["name"]
+                end
+            end
+            if length(d["extra"]) is over 0
+                let ex be d["extra"][0]
+                let exc be ex["card"]
+                give back exc["name"]
+            end
+            if length(d["main"]) is over 0
+                let fm be d["main"][0]
+                let fmc be fm["card"]
+                give back fmc["name"]
+            end
+            give back nothing
+        end
+    end
+    give back nothing
+end
+
+# Render a list of card NAMES as art where they resolve, text pills otherwise.
+# `notes` (optional map name->label) adds a small line under a card.
+to card_chips(names, notes)
+    let clean be []
+    for each n in names
+        add trim(n) to clean
+    end
+    let ids be card_ids(clean)
+    let h be "<div class='chips'>"
+    for each n in clean
+        let extra be ""
+        if notes is not nothing and n is in notes
+            change extra to "<span class='ans'>" + html_escape(notes[n]) + "</span>"
+        end
+        if n is in ids
+            let cid be ids[n]
+            change h to h + "<div class='cardchip' data-id='" + text(cid) + "' data-name='" + html_escape(n) + "' title='click to read'><img loading='lazy' src='https://images.ygoprodeck.com/images/cards_small/" + text(cid) + ".jpg' alt='" + html_escape(n) + "'><span class='cn'>" + html_escape(n) + "</span>" + extra + "</div>"
+        otherwise
+            change h to h + "<div class='cardchip'>" + card_back_tile(n, nothing, 88) + extra + "</div>"
+        end
+    end
+    change h to h + "</div>"
+    give back h
+end
+
+to deck_cards_html(cards, label, ids)
+    let h be "<h2>" + label + "</h2><div class='cards'>"
+    for each c in cards
+        let card be c["card"]
+        let amt be c["amount"]
+        let nm be card["name"]
+        if nm is in ids
+            change h to h + card_tile(ids[nm], nm, amt)
+        otherwise
+            change h to h + card_tile(0, nm, amt)
+        end
+    end
+    change h to h + "</div>"
+    give back h
+end
+
+to decks_body(q)
+    let meta be fetch_meta()
+    let decks be meta["decks"]
+    if length(decks) is 0
+        give back "<h1>Top Decks " + source_badge() + "</h1><p class='lede'>Live deck lists are unavailable right now (API offline) - the meta page still works from the snapshot.</p>"
+    end
+    if "deck" is in q
+        let idx be number(q["deck"])
+        if idx is at least 0 and idx is under length(decks)
+            let d be decks[idx]
+            let dt be d["deckType"]
+            let rt be d["rankedType"]
+            let b be "<h1>" + html_escape(dt["name"]) + "</h1>"
+            change b to b + "<p class='lede'>" + html_escape(rt["name"]) + " &middot; <a href='/analyze?deck=" + url_encode(dt["name"]) + "'>see analysis</a></p>"
+            let names be []
+            for each c in d["main"]
+                let cm be c["card"]
+                add cm["name"] to names
+            end
+            for each c in d["extra"]
+                let cx be c["card"]
+                add cx["name"] to names
+            end
+            let ids be card_ids(names)
+            change b to b + deck_cards_html(d["main"], "Main Deck", ids)
+            change b to b + deck_cards_html(d["extra"], "Extra Deck", ids)
+            give back b
+        end
+    end
+    # a face card per deck, one lookup for all of them
+    let shown be decks[0:30]
+    let faces be []
+    let names be []
+    for each d in shown
+        let fn be nothing
+        if length(d["extra"]) is over 0
+            let e0 be d["extra"][0]
+            let e0c be e0["card"]
+            change fn to e0c["name"]
+        otherwise if length(d["main"]) is over 0
+            let m0 be d["main"][0]
+            let m0c be m0["card"]
+            change fn to m0c["name"]
+        end
+        add fn to faces
+        if fn is not nothing
+            add fn to names
+        end
+    end
+    let ids be card_ids(names)
+    let b be "<div class='hero'><h1>Top Decks " + source_badge() + "</h1><p class='lede'>Recent community deck submissions. Tap one for the full list with card art.</p></div>"
+    change b to b + "<div class='grid-cards'>"
+    let i be 0
+    for each d in shown
+        let dt be d["deckType"]
+        let rt be d["rankedType"]
+        let art be ""
+        let fn be faces[i]
+        if fn is not nothing and fn is in ids
+            let cid be ids[fn]
+            change art to "<div class='mc-art'><img loading='lazy' src='https://images.ygoprodeck.com/images/cards_small/" + text(cid) + ".jpg' alt=''></div>"
+        end
+        change b to b + "<a class='metacard' href='/decks?deck=" + text(i) + "'>" + art
+        change b to b + "<div class='mc-info'><div class='mc-name'>" + html_escape(dt["name"]) + "</div>"
+        change b to b + "<div class='mc-note'>" + html_escape(rt["name"]) + "</div></div></a>"
+        change i to i + 1
+    end
+    change b to b + "</div>"
+    give back b
+end
+
+to analyze_body(q)
+    let meta be fetch_meta()
+    let b be "<h1>Analyze a Deck</h1>"
+    change b to b + "<form method='get' action='/analyze'><select name='deck'>"
+    for each nm in kb_names
+        change b to b + "<option value='" + html_escape(nm) + "'>" + html_escape(nm) + "</option>"
+    end
+    change b to b + "</select><button>Analyze</button></form>"
+    if "deck" is in q
+        let name be q["deck"]
+        let a be analyze(name)
+        if a is nothing
+            change b to b + "<div class='card'><h2 style='margin-top:0'>" + html_escape(name) + "</h2>"
+            change b to b + "<p>No curated analysis for this archetype yet - it may be new to the meta. Try <a href='/ai'>AI analysis</a> for a live breakdown.</p></div>"
+            give back b
+        end
+        let tcls be tier_class(a["tier"])
+        let face be face_name(name, meta["decks"])
+        let fart be ""
+        if face is not nothing
+            let fids be card_ids([face])
+            if face is in fids
+                change fart to "<div class='mc-art' style='width:78px'><img src='https://images.ygoprodeck.com/images/cards_small/" + text(fids[face]) + ".jpg' alt=''></div>"
+            end
+        end
+        change b to b + "<div class='card'><div class='metacard' style='border:0;padding:0;margin-bottom:6px'>" + fart
+        change b to b + "<div class='mc-info'><span class='tier " + tcls + "'>Tier " + a["tier"] + "</span><div class='mc-name' style='font-size:22px'>" + html_escape(name) + "</div></div></div>"
+        change b to b + "<p>" + html_escape(a["summary"]) + "</p>"
+        change b to b + "<h2>Weak to</h2>" + card_chips(a["weak_to"], nothing)
+        change b to b + "<h2>Tech cards</h2>" + card_chips(a["tech"], nothing)
+        change b to b + "<h2>Gameplan</h2><p>" + html_escape(a["gameplan"]) + "</p>"
+        # cross-reference: which counter decks are actually being played now?
+        change b to b + "<h2>Counter decks in today's meta</h2><div>"
+        let found be no
+        for each row in meta["top"]
+            let other be row["name"]
+            if other is in kb
+                for each beat in kb[other]["beats"]
+                    if trim(beat) is name
+                        change b to b + "<span class='pill tech'>" + html_escape(other) + "</span>"
+                        change found to yes
+                    end
+                end
+            end
+        end
+        if not found
+            change b to b + "<span class='note'>No hard counter archetype trending - rely on the tech cards above.</span>"
+        end
+        change b to b + "</div></div>"
+    end
+    give back b
+end
+
+to counters_body(q)
+    let meta be fetch_meta()
+    let b be "<h1>Counter the Meta " + source_badge() + "</h1>"
+    let cm be counter_the_meta(meta["top"])
+    change b to b + "<p class='lede'>The cards that answer the most of today's top decks (" + text(cm["covered"]) + " covered by the knowledge base).</p>"
+    let cnames be []
+    let cnotes be {}
+    for each c in cm["cards"][0:14]
+        let cn be c["card"]
+        add cn to cnames
+        let nk be cn
+        change cnotes at nk to "answers " + text(c["answers"])
+    end
+    change b to b + card_chips(cnames, cnotes)
+    change b to b + "<h2>Counter a specific deck</h2>"
+    change b to b + "<form method='get' action='/counters'><select name='vs'>"
+    for each nm in kb_names
+        change b to b + "<option value='" + html_escape(nm) + "'>" + html_escape(nm) + "</option>"
+    end
+    change b to b + "</select><button>Show counters</button></form>"
+    if "vs" is in q
+        let name be q["vs"]
+        let a be analyze(name)
+        if a is not nothing
+            change b to b + "<div class='card'><h2 style='margin-top:0'>How to beat " + html_escape(name) + "</h2>"
+            change b to b + card_chips(a["weak_to"], nothing)
+            change b to b + "<p class='note'>Side these in, and play around the gameplan: " + html_escape(a["gameplan"]) + "</p></div>"
+        end
+    end
+    give back b
+end
+
+to detect_archetype(text)
+    let low be lowercase(text)
+    for each nm in kb_names
+        if lowercase(nm) is in low
+            give back nm
+        end
+    end
+    give back nothing
+end
+
+to build_body(q)
+    let b be "<h1>Deck Builder & Analyzer</h1>"
+    change b to b + "<p class='lede'>Paste a decklist (card names) or pick an archetype - get its weaknesses, a gameplan, and the tech cards worth running against today's meta.</p>"
+    change b to b + "<form method='get' action='/build'>"
+    change b to b + "<textarea name='list' placeholder='paste a decklist - card names, one per line...'>"
+    if "list" is in q
+        change b to b + html_escape(q["list"])
+    end
+    change b to b + "</textarea>"
+    change b to b + "<select name='deck'><option value=''>- or pick an archetype -</option>"
+    for each nm in kb_names
+        change b to b + "<option value='" + html_escape(nm) + "'>" + html_escape(nm) + "</option>"
+    end
+    change b to b + "</select><button>Analyze my deck</button></form>"
+    let arche be nothing
+    if "deck" is in q and length(q["deck"]) is over 0
+        change arche to q["deck"]
+    otherwise if "list" is in q and length(trim(q["list"])) is over 0
+        change arche to detect_archetype(q["list"])
+    end
+    if arche is nothing and ("list" is in q or "deck" is in q)
+        change b to b + "<div class='card'><p>Couldn't recognise the archetype from that list. Pick one from the dropdown, or try <a href='/ai'>AI analysis</a> which reads any list.</p></div>"
+        give back b
+    end
+    if arche is not nothing
+        let a be analyze(arche)
+        if a is nothing
+            change b to b + "<div class='card'><p>No curated analysis for " + html_escape(arche) + " yet - try <a href='/ai'>AI analysis</a>.</p></div>"
+            give back b
+        end
+        change b to b + "<div class='card'><div class='row'><span class='tier'>" + a["tier"] + "</span><h2 style='margin:0;border:0'>" + html_escape(arche) + "</h2></div>"
+        change b to b + "<p>" + html_escape(a["summary"]) + "</p>"
+        change b to b + "<h2>What beats you</h2>" + card_chips(a["weak_to"], nothing)
+        change b to b + "<h2>Your gameplan</h2><p>" + html_escape(a["gameplan"]) + "</p>"
+        let meta be fetch_meta()
+        let cm be counter_the_meta(meta["top"])
+        let tnames be []
+        for each c in cm["cards"][0:8]
+            add c["card"] to tnames
+        end
+        change b to b + "<h2>Tech worth running vs today's meta</h2><p class='note'>Cards that answer the most of the decks you'll face right now.</p>"
+        change b to b + card_chips(tnames, nothing) + "</div>"
+    end
+    give back b
+end
+
+to ai_body(q)
+    let b be "<h1>AI Analysis</h1>"
+    if ai["key"] is ""
+        change b to b + "<p class='lede'>Bring your own API key (set it in <a href='/settings'>Settings</a>) and ask anything - paste a decklist, ask what to tech, or how to beat the current meta. The current live meta is fed to the AI automatically.</p>"
+    otherwise
+        change b to b + "<p class='lede'>Ask anything - paste a decklist, ask what to side, or how to beat a deck. The live meta is included as context.</p>"
+    end
+    let cur be ""
+    if "q" is in q
+        change cur to q["q"]
+    end
+    change b to b + "<form method='get' action='/ai'><textarea name='q' placeholder='e.g. I play Snake-Eye - what should I tech against the current meta?'>" + html_escape(cur) + "</textarea><button>Ask</button></form>"
+    if "q" is in q and length(trim(cur)) is over 0
+        let answer be ai_analyze(cur)
+        change b to b + "<div class='card'><p style='white-space:pre-wrap'>" + html_escape(answer) + "</p></div>"
+    end
+    give back b
+end
+
+to settings_body(q)
+    # provider/model update freely; the KEY only updates when a non-empty value is
+    # actually submitted (so changing the model, or a blank browser autofill, can
+    # never wipe or clobber a saved key). The key is trimmed of stray whitespace.
+    if "provider" is in q
+        let pp be "provider"
+        change ai at pp to q["provider"]
+    end
+    if "model" is in q
+        let mp be "model"
+        change ai at mp to q["model"]
+    end
+    if "key" is in q and length(trim(q["key"])) is over 0
+        let kp be "key"
+        change ai at kp to trim(q["key"])
+    end
+    let b be "<h1>AI Settings</h1><p class='lede'>Optional. Your key is kept in memory on this local server only.</p>"
+    change b to b + "<form method='get' action='/settings' autocomplete='off'>"
+    change b to b + "<select name='provider'>"
+    for each p in ["openrouter", "anthropic", "ollama-cloud", "nvidia"]
+        let sel be ""
+        if p is ai["provider"]
+            change sel to " selected"
+        end
+        change b to b + "<option value='" + p + "'" + sel + ">" + p + "</option>"
+    end
+    change b to b + "</select>"
+    # Model field: a live picker populated from the current provider's model list.
+    let models be provider_models()
+    if length(models) is over 0
+        let cur be ai["model"]
+        let inlist be no
+        for each m in models
+            if m is cur
+                change inlist to yes
+            end
+        end
+        # if the saved model isn't valid for this provider, default to a known-good
+        # model (first curated pick that's actually offered), else the first listed.
+        let target be cur
+        if not inlist
+            change target to models[0]
+            let picked be no
+            for each pref in curated_models(ai["provider"])
+                if not picked
+                    let found be no
+                    for each m in models
+                        if m is pref
+                            change found to yes
+                        end
+                    end
+                    if found
+                        change target to pref
+                        change picked to yes
+                    end
+                end
+            end
+        end
+        change b to b + "<select name='model'>"
+        for each m in models
+            let sel be ""
+            if m is target
+                change sel to " selected"
+            end
+            change b to b + "<option value='" + html_escape(m) + "'" + sel + ">" + html_escape(m) + "</option>"
+        end
+        if not inlist
+            change b to b + "<option value='" + html_escape(cur) + "'>" + html_escape(cur) + " (keep current)</option>"
+        end
+        change b to b + "</select>"
+        change b to b + "<p class='note'>" + text(length(models)) + " " + ai["provider"] + " models available.</p>"
+    otherwise
+        change b to b + "<input name='model' value='" + html_escape(ai["model"]) + "' placeholder='model'>"
+    end
+    change b to b + "<button>Save provider &amp; model</button></form>"
+    # Separate POST form for the key, so changing the model never resubmits (and a
+    # password-manager autofill can't overwrite) your real key, and the secret
+    # never lands in the URL/history.
+    change b to b + "<form method='post' action='/settings' autocomplete='off'>"
+    let kph be "paste API key"
+    if ai["key"] is not ""
+        change kph to "paste a new key (blank = keep current)"
+    end
+    change b to b + "<input name='key' type='password' autocomplete='new-password' value='' placeholder='" + kph + "' style='min-width:280px'>"
+    change b to b + "<button>Save key</button></form>"
+    if ai["key"] is ""
+        change b to b + "<p class='note'>No key set yet. Provider: " + ai["provider"] + ", model: " + html_escape(ai["model"]) + ".</p>"
+    otherwise
+        change b to b + "<p class='note'>A key is set (" + text(length(ai["key"])) + " chars). Provider: " + ai["provider"] + ", model: " + html_escape(ai["model"]) + ".</p>"
+        change b to b + "<form method='get' action='/settings'><input type='hidden' name='test' value='1'><button>Test connection</button></form>"
+    end
+    if "test" is in q
+        let res be ai_ping()
+        let cls be "snap"
+        if "Connected" is in res
+            change cls to "live"
+        end
+        change b to b + "<p class='note'><span class='badge " + cls + "'>" + html_escape(res) + "</span></p>"
+    end
+    # provider-specific guidance + a quick format sanity check on the saved key
+    let hint be "Get your key from your provider's dashboard and paste the WHOLE thing."
+    if ai["provider"] is "openrouter"
+        change hint to "OpenRouter keys come from <b>openrouter.ai/keys</b> and look like <code>sk-or-v1-...</code> (about 73 chars)."
+        if ai["key"] is not "" and not (starts_with(ai["key"], "sk-or-v1-"))
+            change hint to hint + " <span style='color:#e7b25a'>Your saved key does not start with sk-or-v1- - it's likely the wrong key or truncated.</span>"
+        end
+    end
+    if ai["provider"] is "ollama-cloud"
+        change hint to "Ollama Cloud keys come from <b>ollama.com/settings/keys</b> (your account must have Cloud access)."
+    end
+    if ai["provider"] is "anthropic"
+        change hint to "Anthropic keys come from <b>console.anthropic.com</b> and look like <code>sk-ant-...</code>."
+    end
+    change b to b + "<p class='note'>" + hint + "</p>"
+    give back b
+end
+
+to deckbuild_body(q)
+    let b be "<h1>Auto-Build a Deck</h1>"
+    if ai["key"] is ""
+        change b to b + "<p class='lede'>Describe a deck and the AI builds a full, craftable list - or brews an original deck nobody's playing. Needs an API key (set it in <a href='/settings'>Settings</a>).</p>"
+    otherwise
+        change b to b + "<p class='lede'>Describe a deck (archetype, strategy, budget) and the AI builds a complete decklist you can craft in-game - or hit <b>Brew something unique</b> for an original rogue deck. Card art is pulled in so you can spot each card in Duel Links / Master Duel.</p>"
+    end
+    let idea be ""
+    if "idea" is in q
+        change idea to q["idea"]
+    end
+    let game be "Master Duel"
+    if "game" is in q
+        change game to q["game"]
+    end
+    change b to b + "<form method='get' action='/deckbuild' class='dbform'>"
+    change b to b + "<input name='idea' value='" + html_escape(idea) + "' placeholder='e.g. budget Snake-Eye, or a Dragon control deck'>"
+    let mdsel be ""
+    let dlsel be ""
+    if game is "Duel Links"
+        change dlsel to " selected"
+    otherwise
+        change mdsel to " selected"
+    end
+    change b to b + "<select name='game'><option value='Master Duel'" + mdsel + ">Master Duel</option><option value='Duel Links'" + dlsel + ">Duel Links</option></select>"
+    change b to b + "<button name='mode' value='build'>Build it</button>"
+    change b to b + "<button name='mode' value='brew' class='alt'>Brew something unique</button>"
+    change b to b + "</form>"
+    if ai["key"] is not "" and not ("mode" is in q)
+        change b to b + "<p class='note'>Building calls your AI and can take 15-30 seconds - the page pauses while it works, that's normal.</p>"
+    end
+    if "mode" is in q
+        if ai["key"] is ""
+            change b to b + "<div class='card'><p>Set an API key in <a href='/settings'>Settings</a> first.</p></div>"
+            give back b
+        end
+        let unique be q["mode"] is "brew"
+        let result be ai_deck_validated(idea, game, unique)
+        let parsed be parse_decklist(result)
+        # surface AI/auth/empty failures clearly instead of rendering an empty deck
+        let failed be no
+        if "request failed" is in result or "empty response" is in result or length(trim(result)) is 0
+            change failed to yes
+        end
+        if not failed and length(parsed) is 0
+            change failed to yes
+        end
+        if failed
+            change b to b + "<div class='card'><p class='big'>Couldn't build a deck.</p>"
+            if length(trim(result)) is over 0
+                change b to b + "<p>" + html_escape(result) + "</p>"
+            end
+            if "Unauthorized" is in result or "401" is in result or "key rejected" is in result
+                change b to b + "<p class='note'>Your API key was rejected - go to <a href='/settings'>Settings</a> and hit <b>Test connection</b>.</p>"
+            otherwise
+                change b to b + "<p class='note'>The model didn't return a usable decklist. Try <b>Build</b> again, or switch to a standard (non-thinking) model in <a href='/settings'>Settings</a> like gpt-oss:20b, gpt-4o, or claude-sonnet-4.6.</p>"
+            end
+            change b to b + "</div>"
+            give back b
+        end
+        let names be []
+        for each c in parsed
+            add c["name"] to names
+        end
+        let ids be card_ids(names)
+        let heading be "Your deck"
+        if unique
+            change heading to "A fresh brew"
+        end
+        change b to b + "<h2>" + heading + " - " + html_escape(game) + "</h2>"
+        let maincount be 0
+        let extracount be 0
+        for each c in parsed
+            if c["zone"] is "extra"
+                change extracount to extracount + c["amount"]
+            otherwise
+                change maincount to maincount + c["amount"]
+            end
+        end
+        change b to b + "<p class='note'>Main Deck: <b>" + text(maincount) + "</b> cards &middot; Extra Deck: <b>" + text(extracount) + "</b> cards</p>"
+        if maincount is under 38
+            change b to b + "<p class='note' style='color:#e7b25a'>The AI returned a partial main deck (" + text(maincount) + "/40) - hit Build again for a full 40-card list.</p>"
+        end
+        if length(parsed) is over 0
+            change b to b + decklist_art(parsed, ids)
+        end
+        change b to b + "<div class='card'><pre class='dlist'>" + html_escape(result) + "</pre></div>"
+        change b to b + "<p class='note'>AI-generated - double-check each card is available and unbanned in " + html_escape(game) + " before you craft. Copy the names above to find them in-game.</p>"
+    end
+    give back b
+end
+
+# ---- API + routing ---------------------------------------------------
+to cors_json(obj)
+    give back {"status": 200, "body": obj, "type": "application/json", "headers": {"Access-Control-Allow-Origin": "*"}}
+end
+
+# Parse an x-www-form-urlencoded POST body into a map (url-decoded).
+to parse_form(body)
+    let out be {}
+    for each pair in split(body, "&")
+        if "=" is in pair
+            let kv be split(pair, "=")
+            let k be url_decode(kv[0])
+            let v be url_decode(join(kv[1:length(kv)], "="))
+            let kk be k
+            change out at kk to v
+        end
+    end
+    give back out
+end
+
+to handle(req)
+    let path be req["path"]
+    let q be req["query"]
+    # merge POST form fields into the query map so forms can POST (e.g. the API key)
+    if req["method"] is "POST" and length(req["body"]) is over 0
+        let fields be parse_form(req["body"])
+        for each k in keys(fields)
+            let kk be k
+            change q at kk to fields[k]
+        end
+    end
+    if path is "/api/meta"
+        let meta be fetch_meta()
+        give back cors_json({"source": meta_source, "top": meta["top"]})
+    end
+    if path is "/api/counters"
+        let meta be fetch_meta()
+        give back cors_json(counter_the_meta(meta["top"]))
+    end
+    if path is "/api/analyze"
+        let nm be ""
+        if "deck" is in q
+            change nm to q["deck"]
+        end
+        give back cors_json({"deck": nm, "analysis": analyze(nm)})
+    end
+    if path is "/api/card"
+        let cid be ""
+        if "id" is in q
+            change cid to q["id"]
+        end
+        if cid is ""
+            give back cors_json({"name": "", "desc": "", "meta": ""})
+        end
+        give back cors_json(fetch_card(cid))
+    end
+    if path is "/"
+        give back page("Meta", meta_body())
+    end
+    if path is "/decks"
+        give back page("Top Decks", decks_body(q))
+    end
+    if path is "/analyze"
+        give back page("Analyze", analyze_body(q))
+    end
+    if path is "/counters"
+        give back page("Counters", counters_body(q))
+    end
+    if path is "/build"
+        give back page("Builder", build_body(q))
+    end
+    if path is "/deckbuild"
+        give back page("Auto-Build", deckbuild_body(q))
+    end
+    if path is "/ai"
+        give back page("AI", ai_body(q))
+    end
+    if path is "/settings"
+        give back page("Settings", settings_body(q))
+    end
+    give back {"status": 404, "body": page("Lost", "<h1>Off the meta</h1><p><a href='/'>Back to the meta</a>.</p>")}
+end
+
+say "Topdeck - Master Duel meta analyzer. Open http://localhost:8090"
+serve(8090, handle)
