@@ -78,8 +78,8 @@ BUILTIN = {
         "bin": [{"name": "vself", "kind": "vanta", "main": "vanta.va"}],
     },
     "vc": {
-        "version": "0.1",
-        "summary": "vc - a Vanta-to-C compiler (in Vanta) that builds NATIVE binaries with zero Python (needs a C compiler/cc)",
+        "version": "0.2",
+        "summary": "vc - a Vanta-to-C compiler (in Vanta): compiles strings/lists/maps/for-each to NATIVE binaries with zero Python (needs cc)",
         "deps": ["vanta"],
         "files": [{"source": _u("/packages/vc/vc.va"), "as": "vc.va"}],
         "bin": [{"name": "vc", "kind": "vanta", "main": "vc.va"}],
