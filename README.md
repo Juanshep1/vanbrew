@@ -43,6 +43,7 @@ Everything lives under `~/.vanbrew` (`bin/` shims, `cellar/` versioned installs,
 | Package | What |
 | --- | --- |
 | `vanta` | the Vanta plain-English language + interpreter |
+| `vnox` | **V-NOx 1 — the first OS written in Vanta** (desktop environment, port 8100) |
 | `topdeck` | Yu-Gi-Oh! Master Duel meta analyzer (Vanta web app, port 8090) |
 | `vaeldric` | Vaeldric conlang site + JSON API (Vanta web app, port 8080) |
 | `hello` | a tiny demo package |

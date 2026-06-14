@@ -1,0 +1,397 @@
+# V-NOx 1 - the first operating system written in Vanta.
+# A desktop environment served entirely by this Vanta program: window manager,
+# virtual filesystem, Vanta Studio, and apps. Run a fresh Chrome app-window at
+# http://localhost:8100 (see boot.va) for the full-screen OS feel.
+
+let PORT be 8100
+let VNOX_HOME be path_join(home_dir(), ".vnox")
+let FS_ROOT be path_join(VNOX_HOME, "fs")
+let STATE_FILE be path_join(VNOX_HOME, "state.json")
+
+let state be {"accent": "#4c8dff", "wallpaper": "aurora", "provider": "openrouter", "model": "openai/gpt-4o", "key": ""}
+
+to ensure_home()
+    make_dir(VNOX_HOME)
+    make_dir(FS_ROOT)
+    let docs be path_join(FS_ROOT, "Documents")
+    make_dir(docs)
+    let w be path_join(FS_ROOT, "welcome.va")
+    if not path_exists(w)
+        write_file(w, "say \"Welcome to V-NOx 1 - the first OS made in Vanta.\"\nlet n be 0\nfor each i in range(1, 6)\n    change n to n + i\nend\nsay \"sum 1..5 = \" + text(n)\n")
+    end
+    let r be path_join(FS_ROOT, "Documents", "notes.txt")
+    if not path_exists(r)
+        write_file(r, "My first note inside V-NOx.\n")
+    end
+end
+
+to load_state()
+    if path_exists(STATE_FILE)
+        attempt
+            let raw be read_file(STATE_FILE)
+            let m be from_json(raw)
+            for each k in keys(m)
+                let kk be k
+                change state at kk to m[k]
+            end
+        rescue e
+            change state to state
+        end
+    end
+end
+
+to save_state()
+    write_file(STATE_FILE, to_json(state))
+end
+
+# ---- virtual filesystem (sandboxed under FS_ROOT) -------------------------
+to safe_path(rel)
+    let clean be rel
+    if starts_with(clean, "/")
+        change clean to slice(clean, 1, length(clean))
+    end
+    if ".." is in clean
+        change clean to ""
+    end
+    if clean is ""
+        give back FS_ROOT
+    end
+    give back path_join(FS_ROOT, clean)
+end
+
+to fs_list(rel)
+    let dir be safe_path(rel)
+    let out be []
+    if not is_dir(dir)
+        give back {"path": rel, "entries": out}
+    end
+    for each name in list_dir(dir)
+        if not starts_with(name, ".")
+            let full be path_join(dir, name)
+            let isd be is_dir(full)
+            let sz be 0
+            if not isd
+                change sz to file_size(full)
+            end
+            add {"name": name, "dir": isd, "size": sz} to out
+        end
+    end
+    give back {"path": rel, "entries": out}
+end
+
+# ---- AI (bring-your-own-key, same provider routing as Topdeck) ------------
+to ai_base()
+    if state["provider"] is "anthropic"
+        give back "https://api.anthropic.com/v1"
+    end
+    if state["provider"] is "ollama-cloud"
+        give back "https://ollama.com/v1"
+    end
+    if state["provider"] is "nvidia"
+        give back "https://integrate.api.nvidia.com/v1"
+    end
+    give back "https://openrouter.ai/api/v1"
+end
+
+to ai_chat(prompt)
+    if state["key"] is ""
+        give back "Set an API key in Settings to use the assistant."
+    end
+    attempt
+        if state["provider"] is "anthropic"
+            let ab be {"model": state["model"], "max_tokens": 1200, "messages": [{"role": "user", "content": prompt}]}
+            let ah be {"x-api-key": state["key"], "anthropic-version": "2023-06-01", "Content-Type": "application/json"}
+            let ar be http_post(ai_base() + "/messages", ab, ah)
+            let aj be from_json(ar["body"])
+            if "content" is in aj and length(aj["content"]) is over 0
+                give back aj["content"][0]["text"]
+            end
+            give back "Assistant error (HTTP " + text(ar["status"]) + ")."
+        end
+        let body be {"model": state["model"], "max_tokens": 1200, "messages": [{"role": "user", "content": prompt}]}
+        let hdrs be {"Authorization": "Bearer " + state["key"], "Content-Type": "application/json"}
+        let r be http_post(ai_base() + "/chat/completions", body, hdrs)
+        let j be from_json(r["body"])
+        if "choices" is in j and length(j["choices"]) is over 0
+            give back j["choices"][0]["message"]["content"]
+        end
+        give back "Assistant error (HTTP " + text(r["status"]) + ")."
+    rescue e
+        give back "Assistant request failed: " + e
+    end
+end
+
+# ---- POST body parsing ----------------------------------------------------
+to body_json(req)
+    attempt
+        give back from_json(req["body"])
+    rescue e
+        give back {}
+    end
+end
+
+to cors_json(obj)
+    give back {"status": 200, "body": obj, "type": "application/json", "headers": {"Access-Control-Allow-Origin": "*"}}
+end
+
+to desktop_css()
+    let s be ""
+    change s to s + "*{{box-sizing:border-box;-webkit-user-select:none;user-select:none}}"
+    change s to s + "html,body{{margin:0;height:100%;overflow:hidden;font-family:'Segoe UI','Helvetica Neue',system-ui,sans-serif;color:#e9eefc}}"
+    change s to s + "body{{background:radial-gradient(1200px 700px at 70% -10%,#1b3a78 0%,#0a1226 55%,#070b16 100%)}}"
+    change s to s + "body.wp-aurora{{background:radial-gradient(1100px 700px at 75% -10%,#1b3a78,#0a1226 55%,#070b16)}}"
+    change s to s + "body.wp-mono{{background:#0a0f1e}}"
+    change s to s + "body.wp-violet{{background:radial-gradient(1100px 700px at 25% -10%,#3a2170,#160e2e 55%,#0a0716)}}"
+    change s to s + "a{{color:var(--accent)}}"
+    change s to s + "#top{{position:fixed;top:0;left:0;right:0;height:30px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:13px;background:rgba(8,12,24,.55);backdrop-filter:blur(18px);border-bottom:1px solid rgba(255,255,255,.06);z-index:9000}}"
+    change s to s + "#top .br{{font-weight:700;letter-spacing:1px;color:var(--accent)}}"
+    change s to s + "#top .st{{display:flex;gap:14px;align-items:center;color:#aab6d8}}"
+    change s to s + "#desk{{position:fixed;top:30px;left:0;right:0;bottom:0;overflow:hidden}}"
+    change s to s + ".win{{position:absolute;min-width:280px;min-height:160px;display:flex;flex-direction:column;background:rgba(14,20,38,.82);backdrop-filter:blur(24px) saturate(1.3);border:1px solid rgba(255,255,255,.10);border-radius:13px;box-shadow:0 26px 70px rgba(0,0,0,.6);overflow:hidden;transition:opacity .12s,transform .12s}}"
+    change s to s + ".win.active{{border-color:var(--accent);box-shadow:0 30px 80px rgba(0,0,0,.7),0 0 0 1px var(--accent)}}"
+    change s to s + ".tbar{{height:38px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 6px 0 13px;cursor:grab;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,0))}}"
+    change s to s + ".tbar .tt{{font-size:13px;font-weight:600;color:#dce6ff;white-space:nowrap;overflow:hidden}}"
+    change s to s + ".tctl{{display:flex;gap:2px}}"
+    change s to s + ".tctl i{{width:30px;height:26px;display:flex;align-items:center;justify-content:center;font-style:normal;font-size:13px;color:#aeb9da;border-radius:7px;cursor:pointer}}"
+    change s to s + ".tctl i:hover{{background:rgba(255,255,255,.12);color:#fff}}"
+    change s to s + ".tctl i[data-a=x]:hover{{background:#e23b54;color:#fff}}"
+    change s to s + ".wbody{{flex:1;overflow:auto;position:relative}}"
+    change s to s + ".rsz{{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize}}"
+    change s to s + ".frame{{width:100%;height:100%;border:0;background:#fff}}"
+    change s to s + "#dock{{position:fixed;left:10px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:8px;padding:8px;background:rgba(10,16,32,.55);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.08);border-radius:16px;z-index:8000}}"
+    change s to s + ".dapp{{width:46px;height:46px;display:flex;align-items:center;justify-content:center;font-size:20px;border-radius:12px;cursor:pointer;background:rgba(255,255,255,.05);transition:transform .1s,background .15s}}"
+    change s to s + ".dapp:hover{{background:var(--accent);transform:scale(1.12)}}"
+    change s to s + "#bar{{position:fixed;bottom:9px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:6px;padding:6px;background:rgba(10,16,32,.62);backdrop-filter:blur(22px);border:1px solid rgba(255,255,255,.08);border-radius:14px;z-index:8000}}"
+    change s to s + "#bar .start{{width:40px;height:38px;display:flex;align-items:center;justify-content:center;font-size:18px;border-radius:10px;cursor:pointer;color:var(--accent)}}"
+    change s to s + "#bar .start:hover{{background:rgba(255,255,255,.12)}}"
+    change s to s + "#bar .tk{{height:38px;padding:0 14px;display:flex;align-items:center;gap:7px;border-radius:10px;cursor:pointer;font-size:13px;color:#cdd8f5;background:rgba(255,255,255,.05);max-width:170px;white-space:nowrap;overflow:hidden}}"
+    change s to s + "#bar .tk:hover{{background:rgba(255,255,255,.13)}}"
+    change s to s + "#bar .tk.on{{background:var(--accent);color:#04122e}}"
+    change s to s + "#start{{position:fixed;bottom:58px;left:50%;transform:translateX(-50%) scale(.96);transform-origin:bottom center;width:520px;max-width:92vw;padding:18px;background:rgba(12,18,36,.9);backdrop-filter:blur(28px);border:1px solid rgba(255,255,255,.1);border-radius:16px;box-shadow:0 30px 80px rgba(0,0,0,.6);opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:8500}}"
+    change s to s + "#start.open{{opacity:1;pointer-events:auto;transform:translateX(-50%) scale(1)}}"
+    change s to s + "#start h4{{margin:0 0 10px;color:#9fb0d8;font-weight:600;font-size:12px;letter-spacing:1px;text-transform:uppercase}}"
+    change s to s + ".sgrid{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}}"
+    change s to s + ".sapp{{display:flex;flex-direction:column;align-items:center;gap:7px;padding:14px 6px;border-radius:12px;cursor:pointer}}"
+    change s to s + ".sapp:hover{{background:rgba(255,255,255,.09)}}"
+    change s to s + ".sapp .i{{font-size:24px}}.sapp .n{{font-size:12px;color:#cdd8f5}}"
+    # ---- app interiors ----
+    change s to s + ".pad{{padding:16px;line-height:1.6;font-size:14px;-webkit-user-select:text;user-select:text}}"
+    change s to s + ".tools{{display:flex;gap:7px;align-items:center;padding:8px;border-bottom:1px solid rgba(255,255,255,.07);flex-wrap:wrap}}"
+    change s to s + ".btn{{font:inherit;font-size:13px;padding:7px 13px;border:0;border-radius:8px;background:var(--accent);color:#04122e;font-weight:600;cursor:pointer}}"
+    change s to s + ".btn.ghost{{background:rgba(255,255,255,.08);color:#dbe5ff}}"
+    change s to s + ".btn:hover{{filter:brightness(1.08)}}"
+    change s to s + "input,select,textarea{{font:inherit;color:#e9eefc;background:rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 10px;-webkit-user-select:text;user-select:text}}"
+    change s to s + ".ed{{width:100%;height:62%;border:0;border-radius:0;background:#070c18;color:#e7edff;font-family:'SF Mono',Menlo,monospace;font-size:13.5px;line-height:1.55;padding:12px;resize:none}}"
+    change s to s + ".con{{height:38%;overflow:auto;background:#05080f;color:#bfe9c8;font-family:'SF Mono',Menlo,monospace;font-size:12.5px;padding:10px;white-space:pre-wrap;-webkit-user-select:text;user-select:text;border-top:1px solid rgba(255,255,255,.08)}}"
+    change s to s + ".con .err{{color:#ff9aa6}}"
+    change s to s + ".fg{{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;padding:12px}}"
+    change s to s + ".fi{{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 6px;border-radius:10px;cursor:pointer;text-align:center}}"
+    change s to s + ".fi:hover{{background:rgba(255,255,255,.08)}}.fi .i{{font-size:30px}}.fi .n{{font-size:12px;color:#cdd8f5;word-break:break-word}}"
+    change s to s + ".crumb{{padding:8px 12px;color:#9fb0d8;font-size:13px;border-bottom:1px solid rgba(255,255,255,.07)}}"
+    change s to s + ".term{{height:100%;display:flex;flex-direction:column;background:#05080f}}"
+    change s to s + ".tout{{flex:1;overflow:auto;padding:10px;font-family:'SF Mono',Menlo,monospace;font-size:12.5px;color:#cfeede;white-space:pre-wrap;-webkit-user-select:text;user-select:text}}"
+    change s to s + ".tin{{display:flex;gap:6px;padding:8px;border-top:1px solid rgba(255,255,255,.08)}}.tin .pr{{color:var(--accent);font-family:monospace;align-self:center}}.tin input{{flex:1;font-family:monospace;background:transparent;border:0}}"
+    change s to s + ".calc{{padding:12px;display:flex;flex-direction:column;gap:10px;height:100%}}.calc .disp{{text-align:right;font-size:30px;padding:14px 16px;background:#05080f;border-radius:10px;font-family:monospace;overflow:hidden}}.cg{{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:8px}}.cg b{{display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:500;border-radius:10px;background:rgba(255,255,255,.06);cursor:pointer}}.cg b:hover{{background:rgba(255,255,255,.14)}}.cg b.op{{background:var(--accent);color:#04122e}}"
+    change s to s + ".row{{display:flex;gap:10px;align-items:center;margin:10px 0;flex-wrap:wrap}}.swatch{{width:30px;height:30px;border-radius:50%;cursor:pointer;border:2px solid transparent}}.swatch.on{{border-color:#fff}}"
+    change s to s + ".bigclock{{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:6px}}.bigclock .t{{font-size:54px;font-weight:300;font-variant-numeric:tabular-nums}}.bigclock .d{{color:#9fb0d8}}"
+    change s to s + ".addr{{display:flex;gap:7px;padding:8px;border-bottom:1px solid rgba(255,255,255,.08)}}.addr input{{flex:1}}"
+    give back s
+end
+
+to desktop_js()
+    let j be "(function(){{"
+    change j to j + "var Z=20,WINS={{}},ORD=[];"
+    change j to j + "var APPS={{studio:{{t:'Vanta Studio',i:'&lt;/&gt;',w:780,h:540}},files:{{t:'Files',i:'&#128193;',w:700,h:470}},terminal:{{t:'Terminal',i:'&gt;_',w:680,h:430}},settings:{{t:'Settings',i:'&#9881;',w:660,h:520}},calc:{{t:'Calculator',i:'=',w:300,h:430}},clock:{{t:'Clock',i:'&#128347;',w:320,h:300}},about:{{t:'About V-NOx',i:'&#9670;',w:500,h:400}},browser:{{t:'Browser',i:'&#127760;',w:880,h:600}},topdeck:{{t:'Topdeck',i:'&#9824;',w:1060,h:680,url:'http://localhost:8090'}},vaeldric:{{t:'Vaeldric',i:'&#10022;',w:1060,h:680,url:'http://localhost:8080'}}}};"
+    change j to j + "function elx(t,c,h){{var e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;}}"
+    change j to j + "function desk(){{return document.getElementById('desk');}}"
+    change j to j + "function postj(u,o,cb){{fetch(u,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(o)}}).then(function(r){{return r.json();}}).then(cb);}}"
+    change j to j + "function getj(u,cb){{fetch(u).then(function(r){{return r.json();}}).then(cb);}}"
+    # ---- window management ----
+    change j to j + "function openApp(id){{closeStart();if(WINS[id]){{if(WINS[id].dataset.min==='1')restore(id);focusWin(id);return;}}var a=APPS[id];if(!a)return;var w=elx('div','win');w.dataset.app=id;var n=ORD.length;w.style.width=a.w+'px';w.style.height=a.h+'px';w.style.left=(72+n*26)+'px';w.style.top=(46+n*22)+'px';"
+    change j to j + "w.innerHTML='<div class=\"tbar\"><span class=\"tt\">'+a.i+' '+a.t+'</span><span class=\"tctl\"><i data-a=\"min\">&#8211;</i><i data-a=\"max\">&#9633;</i><i data-a=\"x\">&#215;</i></span></div><div class=\"wbody\"></div><div class=\"rsz\"></div>';"
+    change j to j + "desk().appendChild(w);WINS[id]=w;ORD.push(id);buildApp(id,w.querySelector('.wbody'));var bar=w.querySelector('.tbar');dragify(w,bar);resizify(w);"
+    change j to j + "w.addEventListener('mousedown',function(){{focusWin(id);}});bar.querySelector('.tctl').addEventListener('click',function(e){{var k=e.target.getAttribute('data-a');if(!k)return;e.stopPropagation();if(k==='x')closeWin(id);else if(k==='min')minWin(id);else maxWin(id);}});bar.addEventListener('dblclick',function(){{maxWin(id);}});focusWin(id);renderTasks();}}"
+    change j to j + "function dragify(w,bar){{bar.addEventListener('mousedown',function(e){{if(e.target.closest('.tctl'))return;if(w.dataset.max==='1')return;var sx=e.clientX,sy=e.clientY,ox=w.offsetLeft,oy=w.offsetTop;bar.style.cursor='grabbing';function mv(ev){{w.style.left=(ox+ev.clientX-sx)+'px';w.style.top=Math.max(0,oy+ev.clientY-sy)+'px';}}function up(){{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);bar.style.cursor='grab';}}document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);}});}}"
+    change j to j + "function resizify(w){{w.querySelector('.rsz').addEventListener('mousedown',function(e){{e.stopPropagation();var sx=e.clientX,sy=e.clientY,ow=w.offsetWidth,oh=w.offsetHeight;function mv(ev){{w.style.width=Math.max(280,ow+ev.clientX-sx)+'px';w.style.height=Math.max(160,oh+ev.clientY-sy)+'px';}}function up(){{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);}}document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);}});}}"
+    change j to j + "function focusWin(id){{for(var k in WINS)WINS[k].classList.remove('active');var w=WINS[id];if(!w)return;w.classList.add('active');w.style.zIndex=++Z;renderTasks();}}"
+    change j to j + "function closeWin(id){{if(!WINS[id])return;WINS[id].remove();delete WINS[id];ORD=ORD.filter(function(x){{return x!==id;}});renderTasks();}}"
+    change j to j + "function minWin(id){{var w=WINS[id];if(!w)return;w.style.display='none';w.dataset.min='1';w.classList.remove('active');renderTasks();}}"
+    change j to j + "function restore(id){{var w=WINS[id];if(!w)return;w.style.display='flex';w.dataset.min='0';}}"
+    change j to j + "function maxWin(id){{var w=WINS[id];if(!w)return;if(w.dataset.max==='1'){{w.dataset.max='0';w.style.left=w.dataset.px;w.style.top=w.dataset.py;w.style.width=w.dataset.pw;w.style.height=w.dataset.ph;}}else{{w.dataset.max='1';w.dataset.px=w.style.left;w.dataset.py=w.style.top;w.dataset.pw=w.style.width;w.dataset.ph=w.style.height;w.style.left='0px';w.style.top='0px';w.style.width='100%';w.style.height='100%';}}}}"
+    change j to j + "function renderTasks(){{var b=document.getElementById('tasks');b.innerHTML='';ORD.forEach(function(id){{var a=APPS[id],w=WINS[id];var t=elx('div','tk'+((w&&w.dataset.min!=='1'&&w.classList.contains('active'))?' on':''),a.i+' '+a.t);t.addEventListener('click',function(){{if(w.dataset.min==='1'){{restore(id);focusWin(id);}}else if(w.classList.contains('active'))minWin(id);else focusWin(id);}});b.appendChild(t);}});}}"
+    # ---- app builders ----
+    change j to j + "function buildApp(id,body){{var a=APPS[id];if(a.url){{body.innerHTML='<iframe class=\"frame\" src=\"'+a.url+'\"></iframe>';return;}}if(id==='studio')return studioApp(body);if(id==='files')return filesApp(body);if(id==='terminal')return termApp(body);if(id==='settings')return settingsApp(body);if(id==='calc')return calcApp(body);if(id==='clock')return clockApp(body);if(id==='browser')return browserApp(body);body.innerHTML='<div class=\"pad\"><h2 style=\"margin-top:0\">V-NOx 1</h2><p>The first operating system written in <b>Vanta</b> - window manager, virtual filesystem and apps, all served by one Vanta program. Vanta Studio runs Vanta in-process via the new <code>run_vanta</code> builtin.</p><p style=\"color:#9fb0d8\">Engine: Vanta 4.3 &middot; Display: Chromium &middot; Theme: Midnight Blue</p></div>';}}"
+    change j to j + "function studioApp(body){{body.style.display='flex';body.style.flexDirection='column';body.innerHTML='<div class=\"tools\"><button class=\"btn\" id=\"srun\">&#9654; Run</button><button class=\"btn ghost\" id=\"ssave\">Save</button><button class=\"btn ghost\" id=\"sopen\">Open</button><button class=\"btn ghost\" id=\"sai\">Ask AI</button><span id=\"sfn\" style=\"color:#9fb0d8;font-size:12px;margin-left:auto\">untitled.va</span></div><textarea class=\"ed\" id=\"sed\" spellcheck=\"false\"></textarea><div class=\"con\" id=\"scon\">Console - write Vanta, press Run.</div>';"
+    change j to j + "var ed=body.querySelector('#sed'),con=body.querySelector('#scon'),fn=body.querySelector('#sfn');ed.value='say \"Hello from V-NOx!\"\\nsay \"2 + 2 = \" + text(2 + 2)\\n';"
+    change j to j + "body.querySelector('#srun').addEventListener('click',function(){{con.textContent='Running...';postj('/api/run',{{code:ed.value}},function(d){{con.innerHTML='';if(d.output)con.textContent=d.output;if(!d.ok){{con.appendChild(elx('div','err',(d.output?'\\n':'')+(d.error||'error')));}}if(d.ok&&!d.output)con.textContent='(no output)';}});}});"
+    change j to j + "body.querySelector('#ssave').addEventListener('click',function(){{var p=prompt('Save as:',fn.textContent);if(!p)return;postj('/api/fs/write',{{path:p,content:ed.value}},function(){{fn.textContent=p;}});}});"
+    change j to j + "body.querySelector('#sopen').addEventListener('click',function(){{var p=prompt('Open path:',fn.textContent);if(!p)return;getj('/api/fs/read?path='+encodeURIComponent(p),function(d){{if(d.content!=null){{ed.value=d.content;fn.textContent=p;}}}});}});"
+    change j to j + "body.querySelector('#sai').addEventListener('click',function(){{var q=prompt('Ask the assistant:');if(!q)return;con.textContent='Thinking...';postj('/api/ai',{{prompt:q+'\\n\\nCode:\\n'+ed.value}},function(d){{con.textContent=d.reply||'(no reply)';}});}});}}"
+    change j to j + "function openInStudio(path){{openApp('studio');var w=WINS['studio'];getj('/api/fs/read?path='+encodeURIComponent(path),function(d){{if(d.content!=null){{w.querySelector('#sed').value=d.content;w.querySelector('#sfn').textContent=path;}}}});focusWin('studio');}}"
+    change j to j + "function filesApp(body){{body.dataset.path='';function load(){{var p=body.dataset.path;getj('/api/fs/list?path='+encodeURIComponent(p),function(d){{var crumb=(p===''?'Home':'Home / '+p.split('/').join(' / '));body.innerHTML='<div class=\"crumb\">'+crumb+'</div><div class=\"tools\"><button class=\"btn ghost\" id=\"fup\">Up</button><button class=\"btn ghost\" id=\"fnf\">New file</button><button class=\"btn ghost\" id=\"fnd\">New folder</button></div><div class=\"fg\" id=\"fgrid\"></div>';var g=body.querySelector('#fgrid');"
+    change j to j + "d.entries.forEach(function(en){{var np=(p===''?en.name:p+'/'+en.name);var fi=elx('div','fi','<div class=\"i\">'+(en.dir?'&#128193;':'&#128196;')+'</div><div class=\"n\">'+en.name+'</div>');fi.addEventListener('dblclick',function(){{if(en.dir){{body.dataset.path=np;load();}}else openInStudio(np);}});fi.addEventListener('contextmenu',function(ev){{ev.preventDefault();if(confirm('Delete '+en.name+'?'))postj('/api/fs/delete',{{path:np}},load);}});g.appendChild(fi);}});"
+    change j to j + "body.querySelector('#fup').addEventListener('click',function(){{var pp=body.dataset.path;if(pp==='')return;var a=pp.split('/');a.pop();body.dataset.path=a.join('/');load();}});body.querySelector('#fnf').addEventListener('click',function(){{var nm=prompt('New file:','untitled.va');if(!nm)return;var np=(body.dataset.path===''?nm:body.dataset.path+'/'+nm);postj('/api/fs/write',{{path:np,content:''}},load);}});body.querySelector('#fnd').addEventListener('click',function(){{var nm=prompt('New folder:','folder');if(!nm)return;var np=(body.dataset.path===''?nm:body.dataset.path+'/'+nm);postj('/api/fs/mkdir',{{path:np}},load);}});}});}}load();}}"
+    change j to j + "function termApp(body){{body.innerHTML='<div class=\"term\"><div class=\"tout\" id=\"tout\">V-NOx terminal - Vanta shell. Try: ls, cat welcome.va, run welcome.va, or any Vanta code.\\n</div><div class=\"tin\"><span class=\"pr\">&gt;</span><input id=\"tinp\" spellcheck=\"false\" autocomplete=\"off\"></div></div>';var out=body.querySelector('#tout'),inp=body.querySelector('#tinp');function pr(s){{out.textContent+=s+'\\n';out.scrollTop=out.scrollHeight;}}function rc(code){{postj('/api/run',{{code:code}},function(d){{if(d.output){{var o=d.output;while(o.length&&o.charCodeAt(o.length-1)===10)o=o.slice(0,-1);pr(o);}}if(!d.ok)pr(d.error||'error');}});}}"
+    change j to j + "inp.addEventListener('keydown',function(e){{if(e.key!=='Enter')return;var line=inp.value;inp.value='';pr('> '+line);var t=line.trim();if(t==='')return;if(t==='clear'){{out.textContent='';return;}}if(t==='help'){{pr('ls, cat <file>, run <file>, clear - anything else runs as Vanta.');return;}}if(t==='ls'){{getj('/api/fs/list?path=',function(d){{pr(d.entries.map(function(en){{return (en.dir?'[dir] ':'      ')+en.name;}}).join('\\n')||'(empty)');}});return;}}if(t.indexOf('cat ')===0){{getj('/api/fs/read?path='+encodeURIComponent(t.slice(4).trim()),function(d){{pr(d.content!=null?d.content:'no such file');}});return;}}if(t.indexOf('run ')===0){{getj('/api/fs/read?path='+encodeURIComponent(t.slice(4).trim()),function(d){{if(d.content==null){{pr('no such file');return;}}rc(d.content);}});return;}}rc(t);}});setTimeout(function(){{inp.focus();}},60);}}"
+    change j to j + "function calcApp(body){{body.innerHTML='<div class=\"calc\"><div class=\"disp\" id=\"cd\">0</div><div class=\"cg\" id=\"cg\"></div></div>';var d=body.querySelector('#cd'),g=body.querySelector('#cg'),cur='';var ks=['7','8','9','/','4','5','6','*','1','2','3','-','0','.','=','+','C'];ks.forEach(function(k){{var op=(k==='/'||k==='*'||k==='-'||k==='+'||k==='=');var b=elx('b',op?'op':'',k);b.addEventListener('click',function(){{if(k==='C'){{cur='';d.textContent='0';return;}}if(k==='='){{postj('/api/run',{{code:'say text('+cur+')'}},function(r){{d.textContent=r.ok?r.output.trim():'err';}});return;}}cur+=k;d.textContent=cur;}});g.appendChild(b);}});}}"
+    change j to j + "function clockApp(body){{body.innerHTML='<div class=\"bigclock\"><div class=\"t\" id=\"bct\">--:--</div><div class=\"d\" id=\"bcd\"></div></div>';var t=body.querySelector('#bct'),dd=body.querySelector('#bcd');function up(){{var n=new Date();t.textContent=n.toLocaleTimeString();dd.textContent=n.toDateString();}}up();setInterval(up,1000);}}"
+    change j to j + "function browserApp(body){{body.style.display='flex';body.style.flexDirection='column';body.innerHTML='<div class=\"addr\"><input id=\"url\" value=\"http://localhost:8090\"><button class=\"btn\" id=\"go\">Go</button></div><iframe class=\"frame\" id=\"bf\" src=\"http://localhost:8090\"></iframe>';function nav(){{var u=body.querySelector('#url').value;if(u.indexOf('://')<0)u='http://'+u;body.querySelector('#bf').src=u;}}body.querySelector('#go').addEventListener('click',nav);body.querySelector('#url').addEventListener('keydown',function(e){{if(e.key==='Enter')nav();}});}}"
+    change j to j + "function settingsApp(body){{body.innerHTML='<div class=\"pad\"><h3 style=\"margin-top:0\">Personalization</h3><div class=\"row\">Accent <span id=\"sw\"></span></div><div class=\"row\">Wallpaper <select id=\"wp\"><option value=\"default\">Deep blue</option><option value=\"aurora\">Aurora</option><option value=\"violet\">Violet</option><option value=\"mono\">Mono</option></select></div><h3>Assistant</h3><div class=\"row\"><select id=\"prov\"><option>openrouter</option><option>anthropic</option><option>ollama-cloud</option><option>nvidia</option></select><input id=\"mdl\" placeholder=\"model\" style=\"flex:1;min-width:140px\"></div><div class=\"row\"><input id=\"key\" type=\"password\" placeholder=\"API key (blank=keep)\" style=\"flex:1;min-width:180px\"><button class=\"btn\" id=\"ssv\">Save</button><button class=\"btn ghost\" id=\"stest\">Test</button></div><div id=\"sres\" style=\"color:#9fb0d8;font-size:13px\"></div></div>';"
+    change j to j + "var cols=['#4c8dff','#22c55e','#a855f7','#f59e0b','#ef4444','#06b6d4'],sw=body.querySelector('#sw');cols.forEach(function(c){{var s=elx('span','swatch'+(c===VNOX.accent?' on':''));s.style.background=c;s.addEventListener('click',function(){{VNOX.accent=c;document.documentElement.style.setProperty('--accent',c);body.querySelectorAll('.swatch').forEach(function(x){{x.classList.remove('on');}});s.classList.add('on');saveState();}});sw.appendChild(s);}});"
+    change j to j + "var wp=body.querySelector('#wp');wp.value=VNOX.wallpaper;wp.addEventListener('change',function(){{VNOX.wallpaper=wp.value;applyWall();saveState();}});body.querySelector('#prov').value=VNOX.provider;body.querySelector('#mdl').value=VNOX.model;"
+    change j to j + "body.querySelector('#ssv').addEventListener('click',function(){{VNOX.provider=body.querySelector('#prov').value;VNOX.model=body.querySelector('#mdl').value;saveState(body.querySelector('#key').value);body.querySelector('#sres').textContent='Saved.';}});body.querySelector('#stest').addEventListener('click',function(){{body.querySelector('#sres').textContent='Testing...';postj('/api/ai',{{prompt:'reply with the single word OK'}},function(d){{body.querySelector('#sres').textContent=d.reply||'no reply';}});}});}}"
+    # ---- shell wiring ----
+    change j to j + "function applyWall(){{var w=VNOX.wallpaper;document.body.className=(w==='aurora'?'wp-aurora':(w==='violet'?'wp-violet':(w==='mono'?'wp-mono':'')));}}"
+    change j to j + "function saveState(key){{var b={{accent:VNOX.accent,wallpaper:VNOX.wallpaper,provider:VNOX.provider,model:VNOX.model}};if(key)b.key=key;postj('/api/state',b,function(){{}});}}"
+    change j to j + "function closeStart(){{document.getElementById('start').classList.remove('open');}}"
+    change j to j + "document.getElementById('startbtn').addEventListener('click',function(e){{e.stopPropagation();document.getElementById('start').classList.toggle('open');}});"
+    change j to j + "document.addEventListener('click',function(e){{if(!e.target.closest('#start')&&!e.target.closest('#startbtn'))closeStart();}});"
+    change j to j + "var ops=document.querySelectorAll('[data-open]');for(var i=0;i<ops.length;i++){{(function(el){{el.addEventListener('click',function(){{openApp(el.getAttribute('data-open'));}});}})(ops[i]);}}"
+    change j to j + "function tick(){{document.getElementById('clk').textContent=new Date().toLocaleTimeString([],{{hour:'2-digit',minute:'2-digit'}});}}tick();setInterval(tick,1000);applyWall();openApp('studio');"
+    change j to j + "}})();"
+    give back j
+end
+
+to dock_icon(id, glyph)
+    give back "<div class='dapp' data-open='" + id + "' title='" + id + "'>" + glyph + "</div>"
+end
+
+to sapp(id, glyph, name)
+    give back "<div class='sapp' data-open='" + id + "'><span class='i'>" + glyph + "</span><span class='n'>" + name + "</span></div>"
+end
+
+to start_menu()
+    let m be "<div id='start'><h4>All apps</h4><div class='sgrid'>"
+    change m to m + sapp("studio", "&lt;/&gt;", "Vanta Studio") + sapp("files", "&#128193;", "Files") + sapp("terminal", "&gt;_", "Terminal") + sapp("settings", "&#9881;", "Settings") + sapp("calc", "=", "Calculator")
+    change m to m + sapp("clock", "&#128347;", "Clock") + sapp("browser", "&#127760;", "Browser") + sapp("topdeck", "&#9824;", "Topdeck") + sapp("vaeldric", "&#10022;", "Vaeldric") + sapp("about", "&#9670;", "About")
+    change m to m + "</div></div>"
+    give back m
+end
+
+to desktop_html()
+    let init be to_json({"accent": state["accent"], "wallpaper": state["wallpaper"], "provider": state["provider"], "model": state["model"]})
+    let h be "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+    change h to h + "<title>V-NOx 1</title><style>" + desktop_css() + "</style></head>"
+    change h to h + "<body style='--accent:" + state["accent"] + "'>"
+    change h to h + "<div id='top'><span class='br'>V-NOx</span><span class='st'><span id='clk'>--:--</span> &#9737; &#128268;</span></div>"
+    change h to h + "<div id='desk'></div>"
+    change h to h + "<div id='dock'>" + dock_icon("studio", "&lt;/&gt;") + dock_icon("files", "&#128193;") + dock_icon("terminal", "&gt;_") + dock_icon("browser", "&#127760;") + dock_icon("settings", "&#9881;") + "</div>"
+    change h to h + "<div id='bar'><div class='start' id='startbtn'>&#9638;</div><div id='tasks' style='display:flex;gap:6px'></div></div>"
+    change h to h + start_menu()
+    change h to h + "<script>window.VNOX=" + init + ";document.documentElement.style.setProperty('--accent',VNOX.accent);</script>"
+    change h to h + "<script>" + desktop_js() + "</script>"
+    change h to h + "</body></html>"
+    give back h
+end
+
+to boot_html()
+    let h be "<!doctype html><html><head><meta charset='utf-8'><title>V-NOx</title>"
+    change h to h + "<style>html,body{{margin:0;height:100%;background:radial-gradient(900px 600px at 50% 30%,#142a5e,#070b16);color:#e9eefc;font-family:system-ui;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:20px}}.logo{{font-size:52px;font-weight:800;letter-spacing:5px;color:#4c8dff;text-shadow:0 0 40px rgba(76,141,255,.5)}}.sp{{width:36px;height:36px;border:3px solid #1b2a4a;border-top-color:#4c8dff;border-radius:50%;animation:spin .8s linear infinite}}@keyframes spin{{to{{transform:rotate(360deg)}}}}.sub{{color:#8aa0c8;font-size:13px;letter-spacing:2px}}</style></head>"
+    change h to h + "<body><div class='logo'>V&#8209;NOx&#8201;1</div><div class='sp'></div><div class='sub'>THE FIRST OS MADE IN VANTA</div>"
+    change h to h + "<script>setTimeout(function(){{location.href='/desktop';}},1300);</script></body></html>"
+    give back h
+end
+
+to handle(req)
+    let path be req["path"]
+    let q be req["query"]
+    if path is "/"
+        give back boot_html()
+    end
+    if path is "/desktop"
+        give back desktop_html()
+    end
+    if path is "/api/sys"
+        give back cors_json({"clock": clock(), "date": today(), "version": "V-NOx 1 / Vanta 4.3"})
+    end
+    if path is "/api/run"
+        let b be body_json(req)
+        let code be ""
+        if "code" is in b
+            change code to b["code"]
+        end
+        give back cors_json(run_vanta(code))
+    end
+    if path is "/api/ai"
+        let b be body_json(req)
+        let p be ""
+        if "prompt" is in b
+            change p to b["prompt"]
+        end
+        give back cors_json({"reply": ai_chat(p)})
+    end
+    if path is "/api/state"
+        if req["method"] is "POST"
+            let b be body_json(req)
+            for each k in keys(b)
+                if k is not "key" or b[k] is not ""
+                    let kk be k
+                    change state at kk to b[k]
+                end
+            end
+            save_state()
+            give back cors_json({"ok": yes})
+        end
+        give back cors_json({"accent": state["accent"], "wallpaper": state["wallpaper"], "provider": state["provider"], "model": state["model"], "key_set": state["key"] is not ""})
+    end
+    if path is "/api/fs/list"
+        let p be ""
+        if "path" is in q
+            change p to q["path"]
+        end
+        give back cors_json(fs_list(p))
+    end
+    if path is "/api/fs/read"
+        let p be ""
+        if "path" is in q
+            change p to q["path"]
+        end
+        let fp be safe_path(p)
+        if is_file(fp)
+            give back cors_json({"path": p, "content": read_file(fp)})
+        end
+        give back cors_json({"path": p, "content": nothing})
+    end
+    if path is "/api/fs/write"
+        let b be body_json(req)
+        let fp be safe_path(b["path"])
+        make_dir(dirname(fp))
+        write_file(fp, b["content"])
+        give back cors_json({"ok": yes})
+    end
+    if path is "/api/fs/mkdir"
+        let b be body_json(req)
+        make_dir(safe_path(b["path"]))
+        give back cors_json({"ok": yes})
+    end
+    if path is "/api/fs/delete"
+        let b be body_json(req)
+        remove_path(safe_path(b["path"]))
+        give back cors_json({"ok": yes})
+    end
+    if path is "/api/fs/move"
+        let b be body_json(req)
+        move_path(safe_path(b["from"]), safe_path(b["to"]))
+        give back cors_json({"ok": yes})
+    end
+    give back {"status": 404, "body": "not found"}
+end
+
+# Open the desktop in a chromeless, fullscreen Chrome app-window (the "emulator")
+# a moment after the server comes up. Set VNOX_NO_WINDOW=1 to run headless.
+to open_window()
+    attempt
+        let url be "http://localhost:" + text(PORT) + "/"
+        run("(sleep 1.5; open -na 'Google Chrome' --args --app=" + url + " --start-fullscreen --class=V-NOx) >/dev/null 2>&1 &")
+    rescue e
+        change e to e
+    end
+end
+
+ensure_home()
+load_state()
+say "V-NOx 1 booting on http://localhost:" + text(PORT)
+if env("VNOX_NO_WINDOW") is ""
+    open_window()
+end
+serve(PORT, handle)

@@ -1,9 +1,16 @@
 {
   "vanta": {
-    "version": "4.2",
+    "version": "4.3",
     "summary": "The Vanta plain-English programming language & interpreter",
     "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vanta/vanta.py"}, "as": "vanta.py"}],
     "bin": [{"name": "vanta", "kind": "python", "main": "vanta.py"}]
+  },
+  "vnox": {
+    "version": "1.0",
+    "summary": "V-NOx 1 - the first operating system written in Vanta (desktop OS, port 8100)",
+    "deps": ["vanta"],
+    "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vnox/vnox.va"}, "as": "vnox.va"}],
+    "bin": [{"name": "vnox", "kind": "vanta", "main": "vnox.va"}]
   },
   "topdeck": {
     "version": "1.0",

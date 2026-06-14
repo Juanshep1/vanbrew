@@ -27,8 +27,12 @@ import time
 import math
 import subprocess
 import random
+import io
+import base64
+import hashlib
+import contextlib
 
-VERSION = "4.2"
+VERSION = "4.3"
 
 # Command-line arguments passed to a Vanta program (after the script name).
 PROGRAM_ARGS = []
@@ -2127,6 +2131,181 @@ def b_from_json(args):
         raise VantaError("that text is not valid JSON")
 
 
+# ---- Vanta-in-Vanta: run Vanta code and capture its output ----------------
+def b_run_vanta(args):
+    """Run Vanta SOURCE in a fresh scope, capturing everything it `say`s.
+    Returns {ok, output, error}. This is how Vanta can run Vanta (an editor,
+    a REPL, an OS) entirely in-process - no subprocess, no external runtime."""
+    if len(args) not in (1, 2):
+        raise VantaError("run_vanta expects Vanta code (and an optional name)")
+    code = display(args[0])
+    buf = io.StringIO()
+    env = Environment(GLOBAL_ENV)
+    ok, err = True, ""
+    try:
+        with contextlib.redirect_stdout(buf):
+            compile_block(parse_program(load_lines(code)))(env)
+    except VantaError as e:
+        ok, err = False, str(e)
+    except RecursionError:
+        ok, err = False, "this went too deep (runaway recursion?)"
+    except Exception as e:
+        ok, err = False, str(e)
+    return {"ok": ok, "output": buf.getvalue(), "error": err}
+
+
+def b_run_file(args):
+    _need(args, 1, "run_file")
+    path = display(args[0])
+    try:
+        with open(path, "r") as f:
+            code = f.read()
+    except OSError as e:
+        raise VantaError(f"could not read file: {e}")
+    return b_run_vanta([code])
+
+
+def b_run_detached(args):
+    """Launch a .va FILE in its own process (for programs that serve()/loop
+    forever, which would otherwise block the caller)."""
+    _need(args, 1, "run_detached")
+    path = display(args[0])
+    interp = os.path.abspath(sys.argv[0])
+    proc = subprocess.Popen([sys.executable, interp, path])
+    return proc.pid
+
+
+# ---- filesystem completeness ---------------------------------------------
+def b_append_file(args):
+    _need(args, 2, "append_file")
+    try:
+        with open(display(args[0]), "a") as f:
+            f.write(display(args[1]))
+    except OSError as e:
+        raise VantaError(f"could not append to file: {e}")
+    return None
+
+
+def b_write_bytes(args):
+    _need(args, 2, "write_bytes")
+    if not isinstance(args[1], list):
+        raise VantaError("write_bytes needs a path and a list of 0-255 numbers")
+    try:
+        blob = bytes(int(x) & 0xFF for x in args[1])
+        with open(display(args[0]), "wb") as f:
+            f.write(blob)
+    except OSError as e:
+        raise VantaError(f"could not write file: {e}")
+    return None
+
+
+def b_is_dir(args):
+    _need(args, 1, "is_dir")
+    return os.path.isdir(display(args[0]))
+
+
+def b_is_file(args):
+    _need(args, 1, "is_file")
+    return os.path.isfile(display(args[0]))
+
+
+def b_file_size(args):
+    _need(args, 1, "file_size")
+    try:
+        return os.path.getsize(display(args[0]))
+    except OSError as e:
+        raise VantaError(f"could not read file size: {e}")
+
+
+def b_file_mtime(args):
+    _need(args, 1, "file_mtime")
+    try:
+        return int(os.path.getmtime(display(args[0])))
+    except OSError as e:
+        raise VantaError(f"could not read file time: {e}")
+
+
+def b_move_path(args):
+    _need(args, 2, "move_path")
+    src, dst = display(args[0]), display(args[1])
+    try:
+        parent = os.path.dirname(dst)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        shutil.move(src, dst)
+    except OSError as e:
+        raise VantaError(f"could not move {src}: {e}")
+    return None
+
+
+def b_path_join(args):
+    if not args:
+        return ""
+    return os.path.join(*[display(a) for a in args])
+
+
+def b_dirname(args):
+    _need(args, 1, "dirname")
+    return os.path.dirname(display(args[0]))
+
+
+def b_basename(args):
+    _need(args, 1, "basename")
+    return os.path.basename(display(args[0]))
+
+
+def b_extname(args):
+    _need(args, 1, "extname")
+    return os.path.splitext(display(args[0]))[1]
+
+
+def b_home_dir(args):
+    _need(args, 0, "home_dir")
+    return os.path.expanduser("~")
+
+
+# ---- encoding / hashing ---------------------------------------------------
+def b_base64_encode(args):
+    _need(args, 1, "base64_encode")
+    return base64.b64encode(display(args[0]).encode("utf-8")).decode("ascii")
+
+
+def b_base64_decode(args):
+    _need(args, 1, "base64_decode")
+    try:
+        return base64.b64decode(display(args[0])).decode("utf-8", "replace")
+    except Exception as e:
+        raise VantaError(f"that is not valid base64: {e}")
+
+
+def b_hex_encode(args):
+    _need(args, 1, "hex_encode")
+    return display(args[0]).encode("utf-8").hex()
+
+
+def b_hex_decode(args):
+    _need(args, 1, "hex_decode")
+    try:
+        return bytes.fromhex(display(args[0])).decode("utf-8", "replace")
+    except Exception as e:
+        raise VantaError(f"that is not valid hex: {e}")
+
+
+def b_sha256(args):
+    _need(args, 1, "sha256")
+    return hashlib.sha256(display(args[0]).encode("utf-8")).hexdigest()
+
+
+def b_md5(args):
+    _need(args, 1, "md5")
+    return hashlib.md5(display(args[0]).encode("utf-8")).hexdigest()
+
+
+def b_now_ms(args):
+    _need(args, 0, "now_ms")
+    return int(time.time() * 1000)
+
+
 def b_interpreter(args):
     _need(args, 0, "interpreter")
     return os.path.abspath(sys.argv[0])
@@ -2438,6 +2617,16 @@ BUILTINS = {
     "make_dir": b_make_dir, "remove_path": b_remove_path, "list_dir": b_list_dir,
     "path_exists": b_path_exists, "copy_path": b_copy_path,
     "to_json": b_to_json, "from_json": b_from_json, "interpreter": b_interpreter,
+    # run Vanta from Vanta + filesystem completeness + encoding (v4.3)
+    "run_vanta": b_run_vanta, "run_file": b_run_file, "run_detached": b_run_detached,
+    "append_file": b_append_file, "write_bytes": b_write_bytes,
+    "is_dir": b_is_dir, "is_file": b_is_file, "file_size": b_file_size,
+    "file_mtime": b_file_mtime, "move_path": b_move_path,
+    "path_join": b_path_join, "dirname": b_dirname, "basename": b_basename,
+    "extname": b_extname, "home_dir": b_home_dir, "now_ms": b_now_ms,
+    "base64_encode": b_base64_encode, "base64_decode": b_base64_decode,
+    "hex_encode": b_hex_encode, "hex_decode": b_hex_decode,
+    "sha256": b_sha256, "md5": b_md5,
     # bytes & bitwise
     "read_bytes": b_read_bytes, "band": b_band, "bor": b_bor, "bxor": b_bxor,
     "bnot": b_bnot, "shift_left": b_shift_left, "shift_right": b_shift_right,

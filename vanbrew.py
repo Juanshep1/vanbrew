@@ -58,10 +58,17 @@ def _u(path):
 #   bin:   {"name": "<cmd>", "kind": "python|vanta|exec|shell", "main": "<file>"}
 BUILTIN = {
     "vanta": {
-        "version": "4.2",
+        "version": "4.3",
         "summary": "The Vanta plain-English programming language & interpreter",
         "files": [{"source": _u("/packages/vanta/vanta.py"), "as": "vanta.py"}],
         "bin": [{"name": "vanta", "kind": "python", "main": "vanta.py"}],
+    },
+    "vnox": {
+        "version": "1.0",
+        "summary": "V-NOx 1 - the first operating system written in Vanta (desktop OS, port 8100)",
+        "deps": ["vanta"],
+        "files": [{"source": _u("/packages/vnox/vnox.va"), "as": "vnox.va"}],
+        "bin": [{"name": "vnox", "kind": "vanta", "main": "vnox.va"}],
     },
     "topdeck": {
         "version": "1.0",
