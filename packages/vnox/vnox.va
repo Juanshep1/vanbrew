@@ -377,14 +377,22 @@ to handle(req)
     give back {"status": 404, "body": "not found"}
 end
 
-# Open the desktop in a chromeless, fullscreen Chrome app-window (the "emulator")
-# a moment after the server comes up. Set VNOX_NO_WINDOW=1 to run headless.
+# Open the desktop in a chromeless, fullscreen app-window a moment after the
+# server comes up - works on macOS, Linux and Windows, with any Chromium-class
+# browser, falling back to the default browser. Set VNOX_NO_WINDOW=1 for headless.
 to open_window()
+    let url be "http://localhost:" + text(PORT) + "/"
+    let osn be os_name()
     attempt
-        let url be "http://localhost:" + text(PORT) + "/"
-        run("(sleep 1.5; open -na 'Google Chrome' --args --app=" + url + " --start-fullscreen --class=V-NOx) >/dev/null 2>&1 &")
+        if osn is "mac"
+            run("(sleep 1.5; open -na 'Google Chrome' --args --app=" + url + " --start-fullscreen || open -na 'Chromium' --args --app=" + url + " || open -na 'Microsoft Edge' --args --app=" + url + " || open " + url + ") >/dev/null 2>&1 &")
+        otherwise if osn is "windows"
+            run("start \"\" /b cmd /c \"timeout /t 2 >nul & (start chrome --app=" + url + " --start-fullscreen || start msedge --app=" + url + " || start " + url + ")\"")
+        otherwise
+            run("(sleep 1.5; (google-chrome --app=" + url + " --start-fullscreen || chromium --app=" + url + " || chromium-browser --app=" + url + " || microsoft-edge --app=" + url + " || xdg-open " + url + ")) >/dev/null 2>&1 &")
+        end
     rescue e
-        change e to e
+        open_url(url)
     end
 end
 

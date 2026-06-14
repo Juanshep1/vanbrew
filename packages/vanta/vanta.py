@@ -2306,6 +2306,30 @@ def b_now_ms(args):
     return int(time.time() * 1000)
 
 
+# ---- platform / portability ----------------------------------------------
+def b_os_name(args):
+    _need(args, 0, "os_name")
+    p = sys.platform
+    if p == "darwin":
+        return "mac"
+    if p.startswith("linux"):
+        return "linux"
+    if p.startswith("win") or os.name == "nt":
+        return "windows"
+    return p
+
+
+def b_open_url(args):
+    """Open a URL (or file) in the default browser - works on any OS."""
+    _need(args, 1, "open_url")
+    import webbrowser
+    try:
+        webbrowser.open(display(args[0]))
+    except Exception:
+        pass
+    return None
+
+
 def b_interpreter(args):
     _need(args, 0, "interpreter")
     return os.path.abspath(sys.argv[0])
@@ -2627,6 +2651,7 @@ BUILTINS = {
     "base64_encode": b_base64_encode, "base64_decode": b_base64_decode,
     "hex_encode": b_hex_encode, "hex_decode": b_hex_decode,
     "sha256": b_sha256, "md5": b_md5,
+    "os_name": b_os_name, "open_url": b_open_url,
     # bytes & bitwise
     "read_bytes": b_read_bytes, "band": b_band, "bor": b_bor, "bxor": b_bxor,
     "bnot": b_bnot, "shift_left": b_shift_left, "shift_right": b_shift_right,
