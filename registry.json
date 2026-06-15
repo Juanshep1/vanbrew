@@ -2,56 +2,182 @@
   "vanta": {
     "version": "4.4",
     "summary": "The Vanta plain-English programming language & interpreter (4.4: HTTP client now decodes gzip/deflate + page charset)",
-    "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vanta/vanta.py"}, "as": "vanta.py"}],
-    "bin": [{"name": "vanta", "kind": "python", "main": "vanta.py"}]
+    "files": [
+      {
+        "source": {
+          "kind": "url",
+          "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vanta/vanta.py"
+        },
+        "as": "vanta.py"
+      }
+    ],
+    "bin": [
+      {
+        "name": "vanta",
+        "kind": "python",
+        "main": "vanta.py"
+      }
+    ]
   },
   "vnox": {
     "version": "1.0",
     "summary": "V-NOx 1 - the first operating system written in Vanta (desktop OS, port 8100)",
-    "deps": ["vanta"],
-    "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vnox/vnox.va"}, "as": "vnox.va"}],
-    "bin": [{"name": "vnox", "kind": "vanta", "main": "vnox.va"}]
+    "deps": [
+      "vanta"
+    ],
+    "files": [
+      {
+        "source": {
+          "kind": "url",
+          "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vnox/vnox.va"
+        },
+        "as": "vnox.va"
+      }
+    ],
+    "bin": [
+      {
+        "name": "vnox",
+        "kind": "vanta",
+        "main": "vnox.va"
+      }
+    ]
   },
   "vself": {
     "version": "0.2",
     "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta; runs lists/maps/for-each/recursion and even its own source (self-hosting)",
-    "deps": ["vanta"],
-    "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vself/vanta.va"}, "as": "vanta.va"}],
-    "bin": [{"name": "vself", "kind": "vanta", "main": "vanta.va"}]
+    "deps": [
+      "vanta"
+    ],
+    "files": [
+      {
+        "source": {
+          "kind": "url",
+          "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vself/vanta.va"
+        },
+        "as": "vanta.va"
+      }
+    ],
+    "bin": [
+      {
+        "name": "vself",
+        "kind": "vanta",
+        "main": "vanta.va"
+      }
+    ]
   },
   "vc": {
     "version": "0.5",
     "summary": "vc - a self-hosting Vanta-to-C compiler (in Vanta) with a full C runtime: compiles serve()/sockets/HTTP/JSON/filesystem + an Ebb garbage collector - even V-NOx (the OS) and itself - to NATIVE, Python-free binaries with bounded memory (needs cc)",
-    "deps": ["vanta"],
-    "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vc/vc.va"}, "as": "vc.va"}],
-    "bin": [{"name": "vc", "kind": "vanta", "main": "vc.va"}]
+    "deps": [
+      "vanta"
+    ],
+    "files": [
+      {
+        "source": {
+          "kind": "url",
+          "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vc/vc.va"
+        },
+        "as": "vc.va"
+      }
+    ],
+    "bin": [
+      {
+        "name": "vc",
+        "kind": "vanta",
+        "main": "vc.va"
+      }
+    ]
   },
   "topdeck": {
     "version": "1.0",
     "summary": "Yu-Gi-Oh! Master Duel meta analyzer (a Vanta web app, port 8090)",
-    "deps": ["vanta"],
-    "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/topdeck/mdmeta.va"}, "as": "mdmeta.va"}],
-    "bin": [{"name": "topdeck", "kind": "vanta", "main": "mdmeta.va"}]
+    "deps": [
+      "vanta"
+    ],
+    "files": [
+      {
+        "source": {
+          "kind": "url",
+          "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/topdeck/mdmeta.va"
+        },
+        "as": "mdmeta.va"
+      }
+    ],
+    "bin": [
+      {
+        "name": "topdeck",
+        "kind": "vanta",
+        "main": "mdmeta.va"
+      }
+    ]
   },
   "vaeldric": {
     "version": "1.0",
     "summary": "Vaeldric conlang site + JSON API (a Vanta web app, port 8080)",
-    "deps": ["vanta"],
-    "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vaeldric/vaeldric.va"}, "as": "vaeldric.va"}],
-    "bin": [{"name": "vaeldric", "kind": "vanta", "main": "vaeldric.va"}]
+    "deps": [
+      "vanta"
+    ],
+    "files": [
+      {
+        "source": {
+          "kind": "url",
+          "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vaeldric/vaeldric.va"
+        },
+        "as": "vaeldric.va"
+      }
+    ],
+    "bin": [
+      {
+        "name": "vaeldric",
+        "kind": "vanta",
+        "main": "vaeldric.va"
+      }
+    ]
   },
   "tipjar": {
     "version": "1.0",
     "summary": "Tip Jar - a draggable tip calculator that pops up in your browser (a fun little Vanta demo)",
-    "deps": ["vanta"],
-    "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/tipjar/tipjar.va"}, "as": "tipjar.va"}],
-    "bin": [{"name": "tipjar", "kind": "vanta", "main": "tipjar.va"}]
+    "deps": [
+      "vanta"
+    ],
+    "files": [
+      {
+        "source": {
+          "kind": "url",
+          "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/tipjar/tipjar.va"
+        },
+        "as": "tipjar.va"
+      }
+    ],
+    "bin": [
+      {
+        "name": "tipjar",
+        "kind": "vanta",
+        "main": "tipjar.va"
+      }
+    ]
   },
   "vanta-code": {
-    "version": "0.1",
-    "summary": "Vanta Code - a terminal coding agent that speaks Vanta (Claude Code-style UI; bring your own ANTHROPIC_API_KEY or OPENROUTER_API_KEY)",
-    "deps": ["vanta"],
-    "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vanta-code/vanta-code.py"}, "as": "vanta-code.py"}],
-    "bin": [{"name": "vanta-code", "kind": "python", "main": "vanta-code.py"}]
+    "version": "0.2",
+    "summary": "Vanta Code - a Claude Code-style terminal coding agent that speaks Vanta; /provider switches between Anthropic, OpenRouter and Ollama Cloud (bring your own key)",
+    "deps": [
+      "vanta"
+    ],
+    "files": [
+      {
+        "source": {
+          "kind": "url",
+          "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vanta-code/vanta-code.py"
+        },
+        "as": "vanta-code.py"
+      }
+    ],
+    "bin": [
+      {
+        "name": "vanta-code",
+        "kind": "python",
+        "main": "vanta-code.py"
+      }
+    ]
   }
 }

@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile
 import urllib.request, urllib.error
 
-VERSION = "0.1"
+VERSION = "0.2"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -211,7 +211,7 @@ def to_openai_msgs(history):
 
 def call_llm(cfg, history):
     """Return a normalized assistant message: {content:[blocks], stop:'tool'|'end'}."""
-    if cfg["provider"] == "anthropic":
+    if cfg["kind"] == "anthropic":
         payload = {"model": cfg["model"], "max_tokens": 4096, "system": SYSTEM,
                    "messages": history, "tools": TOOLS}
         headers = {"x-api-key": cfg["key"], "anthropic-version": "2023-06-01",
@@ -316,6 +316,7 @@ def banner(cfg):
 HELP = """  Commands:
     /help            show this help
     /clear           start a fresh conversation
+    /provider [name] list providers, or switch: anthropic | openrouter | ollama
     /model <name>    switch model (current shown in the banner)
     /auto            toggle auto-approve for writes & shell (currently: %s)
     /cwd <path>      change working directory
@@ -339,28 +340,42 @@ def prompt_input():
     return line.rstrip("\n")
 
 # ----------------------------------------------------------------- config ----
+PROVIDERS = {
+    "anthropic":  {"kind": "anthropic", "env": "ANTHROPIC_API_KEY",  "base": None,
+                   "model": "claude-sonnet-4-6",        "label": "Anthropic (Claude)"},
+    "openrouter": {"kind": "openai",    "env": "OPENROUTER_API_KEY", "base": "https://openrouter.ai/api/v1",
+                   "model": "anthropic/claude-sonnet-4.5", "label": "OpenRouter"},
+    "ollama":     {"kind": "openai",    "env": "OLLAMA_API_KEY",     "base": "https://ollama.com/v1",
+                   "model": "gpt-oss:120b",             "label": "Ollama Cloud"},
+}
+PROVIDER_ALIASES = {"ollama-cloud": "ollama", "ollamacloud": "ollama", "claude": "anthropic", "or": "openrouter"}
+
+def file_config():
+    p = os.path.expanduser("~/.vanta-code/config.json")
+    if os.path.exists(p):
+        try: return json.load(open(p))
+        except Exception: return {}
+    return {}
+
+def make_cfg(provider, fc=None, use_env_model=True):
+    p = PROVIDERS.get(provider)
+    if not p: return None
+    fc = fc or {}
+    key = os.environ.get(p["env"]) or (fc.get("key", "") if fc.get("provider") == provider else "")
+    if not key: return None
+    model = (os.environ.get("VANTA_CODE_MODEL") if use_env_model else None) \
+            or (fc.get("model") if fc.get("provider") == provider else None) or p["model"]
+    return {"provider": provider, "kind": p["kind"], "key": key,
+            "base": p["base"], "model": model, "label": p["label"]}
+
 def load_config():
-    cfg = {}
-    cfg_path = os.path.expanduser("~/.vanta-code/config.json")
-    file_cfg = {}
-    if os.path.exists(cfg_path):
-        try: file_cfg = json.load(open(cfg_path))
-        except Exception: file_cfg = {}
-    ak = os.environ.get("ANTHROPIC_API_KEY")
-    ok = os.environ.get("OPENROUTER_API_KEY")
-    prov = file_cfg.get("provider")
+    fc = file_config()
+    prov = fc.get("provider")
     if not prov:
-        prov = "anthropic" if ak else ("openrouter" if ok else None)
-    if prov == "anthropic":
-        cfg = {"provider": "anthropic", "key": ak or file_cfg.get("key", ""),
-               "model": os.environ.get("VANTA_CODE_MODEL") or file_cfg.get("model") or "claude-sonnet-4-6"}
-    elif prov == "openrouter":
-        cfg = {"provider": "openrouter", "key": ok or file_cfg.get("key", ""),
-               "base": "https://openrouter.ai/api/v1",
-               "model": os.environ.get("VANTA_CODE_MODEL") or file_cfg.get("model") or "anthropic/claude-sonnet-4.5"}
-    else:
-        return None
-    return cfg if cfg.get("key") else None
+        for cand in ("anthropic", "openrouter", "ollama"):
+            if os.environ.get(PROVIDERS[cand]["env"]): prov = cand; break
+    if not prov: return None
+    return make_cfg(prov, fc)
 
 def no_key_screen():
     print()
@@ -370,8 +385,9 @@ def no_key_screen():
     print()
     print("    " + green('export ANTHROPIC_API_KEY="sk-ant-..."') + dim("   # uses Claude directly"))
     print("    " + green('export OPENROUTER_API_KEY="sk-or-..."') + dim("    # uses OpenRouter"))
+    print("    " + green('export OLLAMA_API_KEY="..."') + dim("              # uses Ollama Cloud"))
     print()
-    print("  Then run " + bold("vanta-code") + " again. Optional: " + dim("VANTA_CODE_MODEL=<model> to pick a model."))
+    print("  Then run " + bold("vanta-code") + " again, and use " + bold("/provider") + " to switch.")
     print()
 
 # ------------------------------------------------------------------ main -----
@@ -409,6 +425,24 @@ def main():
             elif name == "model":
                 if rest: cfg["model"] = rest; print(dim("  model -> " + rest))
                 else: print(dim("  model: " + cfg["model"]))
+            elif name == "provider":
+                target = PROVIDER_ALIASES.get(rest.lower(), rest.lower())
+                if not rest:
+                    print("  providers " + dim("(current: " + cfg["provider"] + ")") + ":")
+                    for pk, pv in PROVIDERS.items():
+                        mark = orange("●") if pk == cfg["provider"] else dim("○")
+                        has = green("key set") if os.environ.get(pv["env"]) else dim("set " + pv["env"])
+                        print("    %s %-11s %s  %s" % (mark, pk, dim(pv["label"]), has))
+                    print(dim("  switch: /provider ollama   ·   /provider openrouter   ·   /provider anthropic"))
+                elif target not in PROVIDERS:
+                    print(red("  unknown provider '%s'. options: %s" % (rest, ", ".join(PROVIDERS))))
+                else:
+                    nc = make_cfg(target, use_env_model=False)
+                    if not nc:
+                        print(red("  no key for %s — set %s in your environment" % (target, PROVIDERS[target]["env"])))
+                    else:
+                        cfg = nc
+                        print(dim("  provider -> " + cfg["provider"] + " · " + cfg["model"] + "   (/model to change the model)"))
             elif name == "cwd":
                 if rest:
                     try: os.chdir(os.path.expanduser(rest)); print(dim("  cwd -> " + os.getcwd()))

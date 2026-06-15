@@ -49,12 +49,19 @@ nothing is hard-coded and no key is stored:
 | --- | --- |
 | `ANTHROPIC_API_KEY` | Claude, directly |
 | `OPENROUTER_API_KEY` | OpenRouter (OpenAI-compatible) |
+| `OLLAMA_API_KEY` | Ollama Cloud (OpenAI-compatible) |
 
-Optional: `VANTA_CODE_MODEL=<model>` to pick a specific model.
+Set any (or several) and switch live with **`/provider`**. Optional:
+`VANTA_CODE_MODEL=<model>` to pick a specific model.
 
 ## Commands
 
-`/help` · `/clear` · `/model <name>` · `/auto` · `/cwd <path>` · `/exit`
+`/help` · `/clear` · `/provider [name]` · `/model <name>` · `/auto` · `/cwd <path>` · `/exit`
+
+`/provider` with no argument lists the three providers and which have a key set;
+`/provider ollama` (or `openrouter` / `anthropic`) switches on the spot. Each
+provider starts on a sensible default model — use `/model` to change it (e.g.
+`/model qwen3-coder:480b` on Ollama Cloud).
 
 ## Honest scope
 
