@@ -52,11 +52,12 @@ static Value B_join(Value lst,Value sep){ if(lst.t!=TL)return STR(""); char* d=t
 static Value B_upper(Value a){ char* s=tostr(a); char* r=galloc(slen(s)+1); long i=0; for(;s[i];i++){char c=s[i];r[i]=(c>='a'&&c<='z')?c-32:c;} r[i]=0; return STR(r); }
 static Value B_sort(Value lst){ if(lst.t!=TL)return lst; Value v=LIST0(); for(long i=0;i<lst.l->len;i++)listpush(v,lst.l->items[i]); for(long i=1;i<v.l->len;i++){Value key=v.l->items[i];long j=i-1;while(j>=0&&truthy(GT(v.l->items[j],key))){v.l->items[j+1]=v.l->items[j];j--;}v.l->items[j+1]=key;} return v; }
 
-/* ===================== framebuffer + font + keyboard ===================== */
-static u32 FB,PITCH,SW,SH;
+/* ============ framebuffer (double-buffered) + font + mouse + keyboard ============ */
+typedef unsigned int u32; typedef unsigned char u8;
+static u32 FB,PITCH,SW,SH; static u32* BACK; static u32* WALL;
 static inline void outb(unsigned short p,u8 v){ __asm__ volatile("outb %0,%1"::"a"(v),"Nd"(p)); }
 static inline u8 inb(unsigned short p){ u8 r; __asm__ volatile("inb %1,%0":"=a"(r):"Nd"(p)); return r; }
-static inline void putpx(int x,int y,u32 c){ if((unsigned)x>=SW||(unsigned)y>=SH)return; *(volatile u32*)(FB+y*PITCH+x*4)=c; }
+static inline void putpx(int x,int y,u32 c){ if((unsigned)x>=SW||(unsigned)y>=SH)return; BACK[y*SW+x]=c; }
 static void fillrect(int x,int y,int w,int h,u32 c){ if(x<0){w+=x;x=0;} if(y<0){h+=y;y=0;} for(int j=0;j<h;j++)for(int i=0;i<w;i++)putpx(x+i,y+j,c); }
 static const u8 FONT[95][8]={
 {0,0,0,0,0,0,0,0},{24,24,24,24,0,0,24,0},{54,54,0,0,0,0,0,0},{54,54,127,54,127,54,54,0},{12,63,3,30,48,31,12,0},{0,99,51,24,12,102,99,0},{28,54,28,110,59,51,110,0},{6,6,3,0,0,0,0,0},
@@ -74,14 +75,27 @@ static const u8 FONT[95][8]={
 static void drawchar(int x,int y,char c,u32 col,int sc){ if(c<32||c>126)return; const u8* g=FONT[c-32]; for(int r=0;r<8;r++){u8 b=g[r];for(int i=0;i<8;i++)if(b&(1<<i))fillrect(x+i*sc,y+r*sc,sc,sc,col);} }
 static void drawtext(int x,int y,const char* s,u32 col,int sc){ int cx=x; while(*s){ if(*s=='\n'){y+=8*sc+3;cx=x;} else {drawchar(cx,y,*s,col,sc);cx+=8*sc;} s++; } }
 static const char SCAN[128]={0,27,'1','2','3','4','5','6','7','8','9','0','-','=','\b','\t','q','w','e','r','t','y','u','i','o','p','[',']','\n',0,'a','s','d','f','g','h','j','k','l',';',39,'`',0,92,'z','x','c','v','b','n','m',',','.','/',0,'*',0,' '};
-
-Value v_key(void){ if(inb(0x64)&1){u8 sc=inb(0x60); if(!(sc&0x80)&&sc<128){char c=SCAN[sc]; if(c){char b[2]={c,0}; return STR(b);}}} return STR(""); }
+static char kbuf=0; static int mpkt[3],mcyc=0,mx,my,mbtn;
+static void ps2in(void){ int g=0; while((inb(0x64)&2)&&g++<200000){} }
+static void mwait(void){ int g=0; while(!(inb(0x64)&1)&&g++<200000){} }
+static void mcmd(u8 c){ ps2in(); outb(0x64,0xD4); ps2in(); outb(0x60,c); mwait(); inb(0x60); }
+static void mouse_init(void){ ps2in(); outb(0x64,0xA8); ps2in(); outb(0x64,0x20); mwait(); u8 cfg=inb(0x60); cfg|=2; cfg&=~0x20; ps2in(); outb(0x64,0x60); ps2in(); outb(0x60,cfg); mcmd(0xF6); mcmd(0xF4); }
+static void mouse_byte(u8 b){ if(mcyc==0&&!(b&8))return; mpkt[mcyc++]=b; if(mcyc==3){ mcyc=0; int dx=mpkt[1],dy=mpkt[2]; if(mpkt[0]&0x10)dx|=~0xff; if(mpkt[0]&0x20)dy|=~0xff; mbtn=mpkt[0]&1; mx+=dx; my-=dy; if(mx<0)mx=0; if(mx>=(int)SW)mx=SW-1; if(my<0)my=0; if(my>=(int)SH)my=SH-1; } }
+Value v_poll(void){ int g=0; while(g++<256){ u8 st=inb(0x64); if(!(st&1))break; u8 d=inb(0x60); if(st&0x20)mouse_byte(d); else if(!(d&0x80)&&d<128){char c=SCAN[d]; if(c)kbuf=c;} } return NIL(); }
+Value v_key(void){ if(kbuf){char b[2]={kbuf,0}; kbuf=0; return STR(b);} return STR(""); }
+Value v_mouse_x(void){ return NUM(mx); } Value v_mouse_y(void){ return NUM(my); } Value v_mouse_down(void){ return NUM(mbtn); }
 Value v_rgb(Value r,Value g,Value b){ return NUM((long)(((u32)r.n<<16)|((u32)g.n<<8)|(u32)b.n)); }
 Value v_fill(Value x,Value y,Value w,Value h,Value c){ fillrect(x.n,y.n,w.n,h.n,(u32)c.n); return NIL(); }
 Value v_text_at(Value x,Value y,Value s,Value c){ drawtext(x.n,y.n,tostr(s),(u32)c.n,1); return NIL(); }
 Value v_text_big(Value x,Value y,Value s,Value c){ drawtext(x.n,y.n,tostr(s),(u32)c.n,2); return NIL(); }
 Value v_screen_w(void){ return NUM(SW); } Value v_screen_h(void){ return NUM(SH); }
-Value v_wallpaper(void){ for(u32 y=0;y<SH;y++){u32 t=(y*130)/SH;u32 c=((0x0a+t/16)<<16)|((0x12+t/4)<<8)|(0x26+t);for(u32 x=0;x<SW;x++)putpx(x,y,c);} return NIL(); }
+Value v_wallpaper(void){ for(u32 y=0;y<SH;y++){u32 t=(y*130)/SH;u32 c=((0x0a+t/16)<<16)|((0x12+t/4)<<8)|(0x26+t);for(u32 x=0;x<SW;x++)WALL[y*SW+x]=c;} for(u32 i=0;i<SW*SH;i++)BACK[i]=WALL[i]; return NIL(); }
+Value v_clear(void){ for(u32 i=0;i<SW*SH;i++)BACK[i]=WALL[i]; return NIL(); }
+Value v_present(void){ for(u32 y=0;y<SH;y++){ u32* d=(u32*)(FB+y*PITCH); u32* s=&BACK[y*SW]; for(u32 x=0;x<SW;x++)d[x]=s[x]; } return NIL(); }
+Value v_cursor(Value vx,Value vy){ int x=vx.n,y=vy.n; for(int r=0;r<16;r++){ int w=r+1; if(w>10)w=10; for(int c=0;c<w;c++) putpx(x+c+1,y+r+1,0x000000); } for(int r=0;r<16;r++){ int w=r+1; if(w>10)w=10; for(int c=0;c<w;c++) putpx(x+c,y+r,0xffffff); } return NIL(); }
+static unsigned long frame_mark=0;
+Value v_gc_mark(void){ frame_mark=hp; return NIL(); }
+Value v_frame_reset(void){ hp=frame_mark; return NIL(); }
 static Value SAY(Value v){ (void)v; return NIL(); }
 extern void kmain(void);
-void kstart(u32 mbi){ u32* m=(u32*)mbi; FB=*(u32*)((char*)m+88); PITCH=*(u32*)((char*)m+96); SW=*(u32*)((char*)m+100); SH=*(u32*)((char*)m+104); kmain(); for(;;)__asm__ volatile("hlt"); }
+void kstart(u32 mbi){ u32* m=(u32*)mbi; FB=*(u32*)((char*)m+88); PITCH=*(u32*)((char*)m+96); SW=*(u32*)((char*)m+100); SH=*(u32*)((char*)m+104); BACK=galloc((long)SW*SH*4); WALL=galloc((long)SW*SH*4); mx=SW/2; my=SH/2; mouse_init(); kmain(); for(;;)__asm__ volatile("hlt"); }

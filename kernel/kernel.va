@@ -5,53 +5,85 @@ let body be rgb(14, 20, 38)
 let white be rgb(231, 238, 252)
 let dim be rgb(150, 170, 210)
 let titlefg be rgb(6, 18, 44)
+let green be rgb(120, 230, 160)
 
-wallpaper()
 let sw be screen_w()
 let sh be screen_h()
 
-fill(0, 0, sw, 30, navy)
-text_big(16, 7, "V-NOx", accent)
-text_at(sw - 150, 11, "Vanta kernel - bare metal", dim)
-
-to dockicon(y, c)
-    fill(20, y, 36, 36, c)
-end
-fill(12, 130, 52, 290, panelc)
-dockicon(140, accent)
-dockicon(186, rgb(34, 197, 94))
-dockicon(232, rgb(168, 85, 247))
-dockicon(278, rgb(245, 158, 11))
-dockicon(324, rgb(6, 182, 212))
-
-to window(x, y, w, h, title)
-    fill(x, y, w, h, body)
-    fill(x, y, w, 30, accent)
-    text_at(x + 12, y + 11, title, titlefg)
-end
-
-window(180, 80, 560, 300, "Vanta Studio")
-text_at(198, 130, "to greet(name)", white)
-text_at(198, 150, "    say \"hello \" + name", white)
-text_at(198, 170, "end", white)
-text_at(198, 200, "say greet(\"V-NOx\")", white)
-text_at(198, 240, "this desktop is drawn by Vanta code,", dim)
-text_at(198, 258, "compiled to a kernel, on bare metal.", dim)
-text_at(198, 286, "no operating system. no python.", dim)
-
-fill(sw / 2 - 150, sh - 46, 300, 36, panelc)
-text_at(sw / 2 - 132, sh - 35, "start    studio    files    term", dim)
-
-fill(180, 398, 560, 150, body)
-fill(180, 398, 560, 26, rgb(40, 60, 100))
-text_at(194, 406, "V-NOx Terminal  -  type on the keyboard:", white)
+let windows be []
+add {"x": 170, "y": 70, "w": 520, "h": 250, "title": "Vanta Studio", "kind": "studio"} to windows
+add {"x": 260, "y": 360, "w": 500, "h": 150, "title": "V-NOx Terminal", "kind": "term"} to windows
 let buf be "> "
-text_at(196, 440, buf, rgb(120, 230, 160))
+let drag be -1
+let dox be 0
+let doy be 0
+
+to draw_window(w)
+    fill(w["x"], w["y"], w["w"], w["h"], body)
+    fill(w["x"], w["y"], w["w"], 30, accent)
+    text_at(w["x"] + 12, w["y"] + 11, w["title"], titlefg)
+    if w["kind"] is "studio"
+        text_at(w["x"] + 16, w["y"] + 50, "to greet(name)", white)
+        text_at(w["x"] + 16, w["y"] + 70, "    say \"hi \" + name", white)
+        text_at(w["x"] + 16, w["y"] + 90, "end", white)
+        text_at(w["x"] + 16, w["y"] + 124, "a desktop on a Vanta kernel,", dim)
+        text_at(w["x"] + 16, w["y"] + 142, "with draggable windows + mouse.", dim)
+        text_at(w["x"] + 16, w["y"] + 160, "no OS. no python. bare metal.", dim)
+    end
+    if w["kind"] is "term"
+        text_at(w["x"] + 14, w["y"] + 50, buf, green)
+        text_at(w["x"] + 14, w["y"] + 100, "(type on the keyboard)", dim)
+    end
+end
+
+wallpaper()
+gc_mark()
 while yes
+    frame_reset()
+    poll()
+    let mx be mouse_x()
+    let my be mouse_y()
+    let down be mouse_down()
     let k be key()
     if k is not ""
         change buf to buf + k
-        fill(190, 438, 540, 20, body)
-        text_at(196, 440, buf, rgb(120, 230, 160))
     end
+    if down is 1
+        if drag is -1
+            let i be 0
+            for each w in windows
+                if mx is at least w["x"] and mx is at most (w["x"] + w["w"]) and my is at least w["y"] and my is at most (w["y"] + 30)
+                    change drag to i
+                    change dox to mx - w["x"]
+                    change doy to my - w["y"]
+                end
+                change i to i + 1
+            end
+        otherwise
+            let w be windows[drag]
+            change w at "x" to mx - dox
+            change w at "y" to my - doy
+        end
+    otherwise
+        change drag to -1
+    end
+    clear()
+    fill(0, 0, sw, 30, navy)
+    text_big(16, 7, "V-NOx", accent)
+    text_at(sw - 230, 11, "drag the windows with the mouse", dim)
+    fill(12, 120, 52, 250, panelc)
+    fill(20, 130, 36, 36, accent)
+    fill(20, 176, 36, 36, green)
+    fill(20, 222, 36, 36, rgb(168, 85, 247))
+    fill(20, 268, 36, 36, rgb(245, 158, 11))
+    fill(sw / 2 - 150, sh - 46, 300, 36, panelc)
+    text_at(sw / 2 - 132, sh - 35, "start    studio    files    term", dim)
+    for each w in windows
+        draw_window(w)
+    end
+    if drag is at least 0
+        draw_window(windows[drag])
+    end
+    cursor(mx, my)
+    present()
 end
