@@ -195,6 +195,14 @@ to desktop_css()
     change s to s + ".row{{display:flex;gap:10px;align-items:center;margin:10px 0;flex-wrap:wrap}}.swatch{{width:30px;height:30px;border-radius:50%;cursor:pointer;border:2px solid transparent}}.swatch.on{{border-color:#fff}}"
     change s to s + ".bigclock{{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:6px}}.bigclock .t{{font-size:54px;font-weight:300;font-variant-numeric:tabular-nums}}.bigclock .d{{color:#9fb0d8}}"
     change s to s + ".addr{{display:flex;gap:7px;padding:8px;border-bottom:1px solid rgba(255,255,255,.08)}}.addr input{{flex:1}}"
+    change s to s + ".bnote{{padding:6px 12px;font-size:11px;color:#8aa0c8;background:rgba(0,0,0,.18);border-bottom:1px solid rgba(255,255,255,.06)}}"
+    change s to s + ".bhome{{padding:30px;display:flex;flex-direction:column;align-items:center;gap:12px;min-height:100%;background:radial-gradient(800px 520px at 50% -12%,#16264f,#0a0f1e 62%);color:#e9eefc}}"
+    change s to s + ".bh-logo{{font-size:30px;font-weight:800;letter-spacing:3px;color:var(--accent);margin-top:22px;text-shadow:0 0 34px rgba(76,141,255,.45)}}"
+    change s to s + ".bh-sub{{color:#8aa0c8;font-size:13px;letter-spacing:1px}}"
+    change s to s + ".bh-search{{display:flex;gap:8px;width:100%;max-width:560px;margin-top:8px}}.bh-search input{{flex:1;padding:13px 18px;font-size:15px;border-radius:24px}}"
+    change s to s + ".bh-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%;max-width:560px;margin-top:14px}}"
+    change s to s + ".bh-tile{{display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 8px;border-radius:14px;cursor:pointer;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07);transition:transform .1s,background .15s}}"
+    change s to s + ".bh-tile:hover{{background:rgba(255,255,255,.1);transform:translateY(-2px)}}.bh-tile .i{{font-size:26px}}.bh-tile .n{{font-size:12px;color:#cdd8f5}}"
     give back s
 end
 
@@ -235,7 +243,19 @@ to desktop_js()
     change j to j + "inp.addEventListener('keydown',function(e){{if(e.key!=='Enter')return;var line=inp.value;inp.value='';pr('> '+line);var t=line.trim();if(t==='')return;if(t==='clear'){{out.textContent='';return;}}if(t==='help'){{pr('ls, cat <file>, run <file>, clear - anything else runs as Vanta.');return;}}if(t==='ls'){{getj('/api/fs/list?path=',function(d){{pr(d.entries.map(function(en){{return (en.dir?'[dir] ':'      ')+en.name;}}).join('\\n')||'(empty)');}});return;}}if(t.indexOf('cat ')===0){{getj('/api/fs/read?path='+encodeURIComponent(t.slice(4).trim()),function(d){{pr(d.content!=null?d.content:'no such file');}});return;}}if(t.indexOf('run ')===0){{getj('/api/fs/read?path='+encodeURIComponent(t.slice(4).trim()),function(d){{if(d.content==null){{pr('no such file');return;}}rc(d.content);}});return;}}rc(t);}});setTimeout(function(){{inp.focus();}},60);}}"
     change j to j + "function calcApp(body){{body.innerHTML='<div class=\"calc\"><div class=\"disp\" id=\"cd\">0</div><div class=\"cg\" id=\"cg\"></div></div>';var d=body.querySelector('#cd'),g=body.querySelector('#cg'),cur='';var ks=['7','8','9','/','4','5','6','*','1','2','3','-','0','.','=','+','C'];ks.forEach(function(k){{var op=(k==='/'||k==='*'||k==='-'||k==='+'||k==='=');var b=elx('b',op?'op':'',k);b.addEventListener('click',function(){{if(k==='C'){{cur='';d.textContent='0';return;}}if(k==='='){{postj('/api/run',{{code:'say text('+cur+')'}},function(r){{d.textContent=r.ok?r.output.trim():'err';}});return;}}cur+=k;d.textContent=cur;}});g.appendChild(b);}});}}"
     change j to j + "function clockApp(body){{body.innerHTML='<div class=\"bigclock\"><div class=\"t\" id=\"bct\">--:--</div><div class=\"d\" id=\"bcd\"></div></div>';var t=body.querySelector('#bct'),dd=body.querySelector('#bcd');function up(){{var n=new Date();t.textContent=n.toLocaleTimeString();dd.textContent=n.toDateString();}}up();setInterval(up,1000);}}"
-    change j to j + "function browserApp(body){{body.style.display='flex';body.style.flexDirection='column';body.innerHTML='<div class=\"addr\"><input id=\"url\" value=\"http://localhost:8090\"><button class=\"btn\" id=\"go\">Go</button></div><iframe class=\"frame\" id=\"bf\" src=\"http://localhost:8090\"></iframe>';function nav(){{var u=body.querySelector('#url').value;if(u.indexOf('://')<0)u='http://'+u;body.querySelector('#bf').src=u;}}body.querySelector('#go').addEventListener('click',nav);body.querySelector('#url').addEventListener('keydown',function(e){{if(e.key==='Enter')nav();}});}}"
+    change j to j + "function browserApp(body){{body.style.display='flex';body.style.flexDirection='column';body.dataset.mode='reader';body.innerHTML='<div class=\"addr\"><button class=\"btn ghost\" id=\"bhome\" title=\"Home\">&#127968;</button><input id=\"url\" placeholder=\"Search the web or enter a URL\" style=\"flex:1\"><button class=\"btn\" id=\"go\">Go</button><button class=\"btn ghost\" id=\"bmode\" title=\"Reader proxies pages; Direct embeds them\">Reader</button><button class=\"btn ghost\" id=\"bext\" title=\"Open in system browser\">Open &#8599;</button></div><div class=\"bnote\">Reader mode renders most sites read-only through Vanta. For logins, video or heavy JS, use <b>Open &#8599;</b> (your system browser).</div><div id=\"bview\" style=\"flex:1;position:relative;overflow:auto;background:#0a0f1e\"></div>';"
+    change j to j + "var bview=body.querySelector('#bview'),urlIn=body.querySelector('#url');"
+    change j to j + "function norm(u){{u=(u||'').trim();if(u==='')return '';var i=u.indexOf('://');if(i>0&&i<8)return u;if(u.indexOf(' ')<0&&u.indexOf('.')>0)return 'https://'+u;return 'https://duckduckgo.com/html/?q='+encodeURIComponent(u);}}"
+    change j to j + "function go(raw){{var u=norm(raw);if(!u)return;urlIn.value=u;var local=(u.indexOf('://localhost')>=0||u.indexOf('://127.0.0.1')>=0);var direct=(body.dataset.mode==='direct')||local;var src=direct?u:('/api/proxy?u='+encodeURIComponent(u));bview.innerHTML='<iframe class=\"frame\" id=\"bf\"></iframe>';bview.querySelector('#bf').src=src;}}"
+    change j to j + "function bhome(){{bview.innerHTML='<div class=\"bhome\"><div class=\"bh-logo\">V&#8209;NOx Browser</div><div class=\"bh-sub\">real internet, served through Vanta</div><div class=\"bh-search\"><input id=\"bq\" placeholder=\"Search DuckDuckGo or type a URL\"><button class=\"btn\" id=\"bqg\">Search</button></div><div class=\"bh-grid\" id=\"bgrid\"></div></div>';"
+    change j to j + "var L=[['Wikipedia','https://en.wikipedia.org','&#128214;'],['Hacker News','https://news.ycombinator.com','&#128240;'],['MDN','https://developer.mozilla.org','&#128221;'],['Example.com','https://example.com','&#127760;'],['Topdeck','http://localhost:8090','&#9824;'],['Vaeldric','http://localhost:8080','&#10022;']];"
+    change j to j + "var g=bview.querySelector('#bgrid');L.forEach(function(x){{var t=elx('div','bh-tile','<span class=\"i\">'+x[2]+'</span><span class=\"n\">'+x[0]+'</span>');t.addEventListener('click',function(){{go(x[1]);}});g.appendChild(t);}});"
+    change j to j + "var bq=bview.querySelector('#bq');function s(){{var v=bq.value.trim();if(v)go(v);}}bview.querySelector('#bqg').addEventListener('click',s);bq.addEventListener('keydown',function(e){{if(e.key==='Enter')s();}});setTimeout(function(){{bq.focus();}},50);}}"
+    change j to j + "body.querySelector('#go').addEventListener('click',function(){{go(urlIn.value);}});urlIn.addEventListener('keydown',function(e){{if(e.key==='Enter')go(urlIn.value);}});"
+    change j to j + "body.querySelector('#bhome').addEventListener('click',bhome);"
+    change j to j + "body.querySelector('#bmode').addEventListener('click',function(e){{body.dataset.mode=(body.dataset.mode==='direct')?'reader':'direct';e.target.textContent=(body.dataset.mode==='direct')?'Direct':'Reader';if(urlIn.value)go(urlIn.value);}});"
+    change j to j + "body.querySelector('#bext').addEventListener('click',function(){{var u=norm(urlIn.value);if(!u){{alert('Type a URL or search first.');return;}}postj('/api/open',{{url:u}},function(){{}});}});"
+    change j to j + "bhome();}}"
     change j to j + "function settingsApp(body){{body.innerHTML='<div class=\"pad\"><h3 style=\"margin-top:0\">Personalization</h3><div class=\"row\">Accent <span id=\"sw\"></span></div><div class=\"row\">Wallpaper <select id=\"wp\"><option value=\"default\">Deep blue</option><option value=\"aurora\">Aurora</option><option value=\"violet\">Violet</option><option value=\"mono\">Mono</option></select></div><h3>Assistant</h3><div class=\"row\"><select id=\"prov\"><option>openrouter</option><option>anthropic</option><option>ollama-cloud</option><option>nvidia</option></select><input id=\"mdl\" placeholder=\"model\" style=\"flex:1;min-width:140px\"></div><div class=\"row\"><input id=\"key\" type=\"password\" placeholder=\"API key (blank=keep)\" style=\"flex:1;min-width:180px\"><button class=\"btn\" id=\"ssv\">Save</button><button class=\"btn ghost\" id=\"stest\">Test</button></div><div id=\"sres\" style=\"color:#9fb0d8;font-size:13px\"></div></div>';"
     change j to j + "var cols=['#4c8dff','#22c55e','#a855f7','#f59e0b','#ef4444','#06b6d4'],sw=body.querySelector('#sw');cols.forEach(function(c){{var s=elx('span','swatch'+(c===VNOX.accent?' on':''));s.style.background=c;s.addEventListener('click',function(){{VNOX.accent=c;document.documentElement.style.setProperty('--accent',c);body.querySelectorAll('.swatch').forEach(function(x){{x.classList.remove('on');}});s.classList.add('on');saveState();}});sw.appendChild(s);}});"
     change j to j + "var wp=body.querySelector('#wp');wp.value=VNOX.wallpaper;wp.addEventListener('change',function(){{VNOX.wallpaper=wp.value;applyWall();saveState();}});body.querySelector('#prov').value=VNOX.provider;body.querySelector('#mdl').value=VNOX.model;"
@@ -373,6 +393,39 @@ to handle(req)
         let b be body_json(req)
         move_path(safe_path(b["from"]), safe_path(b["to"]))
         give back cors_json({"ok": yes})
+    end
+    if path is "/api/proxy"
+        let u be ""
+        if "u" is in q
+            change u to q["u"]
+        end
+        if u is ""
+            give back {"status": 400, "body": "missing url", "type": "text/plain"}
+        end
+        attempt
+            let resp be http_get(u, {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Accept": "text/html,application/xhtml+xml"})
+            let htmlb be resp["body"]
+            let base be "<base href=\"" + u + "\">"
+            let injected be base + htmlb
+            if "<head>" is in htmlb
+                change injected to replace(htmlb, "<head>", "<head>" + base)
+            end
+            give back {"status": 200, "body": injected, "type": "text/html; charset=utf-8", "headers": {"Access-Control-Allow-Origin": "*"}}
+        rescue e
+            give back {"status": 200, "body": "<body style='font-family:system-ui;background:#0a0f1e;color:#e9eefc;padding:32px'><h3>Reader mode could not load this page</h3><p style='color:#9fb0d8'>" + e + "</p><p>Use <b>Open &#8599;</b> to open it in your system browser instead.</p></body>", "type": "text/html; charset=utf-8"}
+        end
+    end
+    if path is "/api/open"
+        let b be body_json(req)
+        let u be ""
+        if "url" is in b
+            change u to b["url"]
+        end
+        if starts_with(u, "http://") or starts_with(u, "https://")
+            open_url(u)
+            give back cors_json({"ok": yes})
+        end
+        give back cors_json({"ok": no, "error": "only http(s) urls allowed"})
     end
     give back {"status": 404, "body": "not found"}
 end
