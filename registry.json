@@ -39,5 +39,12 @@
     "deps": ["vanta"],
     "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vaeldric/vaeldric.va"}, "as": "vaeldric.va"}],
     "bin": [{"name": "vaeldric", "kind": "vanta", "main": "vaeldric.va"}]
+  },
+  "tipjar": {
+    "version": "1.0",
+    "summary": "Tip Jar - a draggable tip calculator that pops up in your browser (a fun little Vanta demo)",
+    "deps": ["vanta"],
+    "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/tipjar/tipjar.va"}, "as": "tipjar.va"}],
+    "bin": [{"name": "tipjar", "kind": "vanta", "main": "tipjar.va"}]
   }
 }
