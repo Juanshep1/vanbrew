@@ -46,5 +46,12 @@
     "deps": ["vanta"],
     "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/tipjar/tipjar.va"}, "as": "tipjar.va"}],
     "bin": [{"name": "tipjar", "kind": "vanta", "main": "tipjar.va"}]
+  },
+  "vanta-code": {
+    "version": "0.1",
+    "summary": "Vanta Code - a terminal coding agent that speaks Vanta (Claude Code-style UI; bring your own ANTHROPIC_API_KEY or OPENROUTER_API_KEY)",
+    "deps": ["vanta"],
+    "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vanta-code/vanta-code.py"}, "as": "vanta-code.py"}],
+    "bin": [{"name": "vanta-code", "kind": "python", "main": "vanta-code.py"}]
   }
 }

@@ -49,6 +49,7 @@ Everything lives under `~/.vanbrew` (`bin/` shims, `cellar/` versioned installs,
 | `vc` | a self-hosting **Vanta→C compiler** — compiles Vanta (even V-NOx, and itself) to native, Python-free binaries, with a garbage collector |
 | `topdeck` | Yu-Gi-Oh! Master Duel meta analyzer (Vanta web app, port 8090) |
 | `vaeldric` | Vaeldric conlang site + JSON API (Vanta web app, port 8080) |
+| `vanta-code` | **a terminal coding agent that speaks Vanta** — Claude Code-style UI, bring your own API key |
 | `tipjar` | a draggable tip calculator that pops up in your browser — a fun little demo |
 | `hello` | a tiny demo package |
 
