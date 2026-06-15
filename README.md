@@ -11,6 +11,7 @@ Then:
 
 ```sh
 vanbrew install vanta      # now `vanta file.va` works anywhere
+vanbrew install vnox       # then run `vnox` to boot the V-NOx desktop OS
 vanbrew install topdeck    # now just run `topdeck`
 vanbrew search .           # browse the whole catalog
 ```
@@ -42,11 +43,27 @@ Everything lives under `~/.vanbrew` (`bin/` shims, `cellar/` versioned installs,
 
 | Package | What |
 | --- | --- |
-| `vanta` | the Vanta plain-English language + interpreter |
-| `vnox` | **V-NOx 1 — the first OS written in Vanta** (desktop environment, port 8100) |
+| `vanta` | the Vanta plain-English language + interpreter (**4.4** — a full web stack: `serve`, an HTTP client with gzip/charset decoding, filesystem, JSON, and `run_vanta` for running Vanta in-process) |
+| `vnox` | **V-NOx 1 — the first OS written in Vanta.** A whole desktop environment served by one Vanta program on port 8100 — window manager, virtual filesystem, Vanta Studio, Files, Terminal, Settings, Calculator, and a real **web browser** (searches and reads live sites through a Vanta proxy, multi-tab with back/forward, and opens logins/video in Firefox). |
+| `vself` | a Vanta interpreter **written in Vanta** — self-hosting; runs lists/maps/recursion and even its own source |
+| `vc` | a self-hosting **Vanta→C compiler** — compiles Vanta (even V-NOx, and itself) to native, Python-free binaries, with a garbage collector |
 | `topdeck` | Yu-Gi-Oh! Master Duel meta analyzer (Vanta web app, port 8090) |
 | `vaeldric` | Vaeldric conlang site + JSON API (Vanta web app, port 8080) |
 | `hello` | a tiny demo package |
+
+## Bonus: V-NOx on bare metal
+
+The [`kernel/`](kernel) folder is a different beast: a **bootable graphical
+desktop OS** with no operating system, no Python, and no libc beneath it. Vanta
+source is compiled to C by `vc`, linked freestanding into a 32-bit kernel, and
+booted by Limine in QEMU. It paints an "aurora over obsidian" desktop into a raw
+framebuffer and runs a real window manager — draggable windows with close
+buttons, a clickable dock that opens apps, a PS/2 mouse cursor, and a
+keyboard-driven terminal — all written in Vanta.
+
+```sh
+cd kernel && ./build.sh && ./run.sh    # needs clang, ld.lld, limine, qemu
+```
 
 ## Add your own package
 
