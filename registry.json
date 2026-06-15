@@ -1,7 +1,7 @@
 {
   "vanta": {
-    "version": "4.3",
-    "summary": "The Vanta plain-English programming language & interpreter",
+    "version": "4.4",
+    "summary": "The Vanta plain-English programming language & interpreter (4.4: HTTP client now decodes gzip/deflate + page charset)",
     "files": [{"source": {"kind": "url", "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vanta/vanta.py"}, "as": "vanta.py"}],
     "bin": [{"name": "vanta", "kind": "python", "main": "vanta.py"}]
   },

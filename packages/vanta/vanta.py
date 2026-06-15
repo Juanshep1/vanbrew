@@ -32,7 +32,7 @@ import base64
 import hashlib
 import contextlib
 
-VERSION = "4.3"
+VERSION = "4.4"
 
 # Command-line arguments passed to a Vanta program (after the script name).
 PROGRAM_ARGS = []
@@ -2437,6 +2437,38 @@ def _headers_map(value, name):
     return {display(k): display(v) for k, v in value.items()}
 
 
+def _decode_http_body(raw, http_headers):
+    # Undo gzip/deflate if the server compressed the reply, then decode text
+    # using the charset the server declared (falling back to UTF-8). This lets
+    # http_get read real-world pages that aren't plain UTF-8.
+    import gzip
+    import zlib
+    enc = (http_headers.get("Content-Encoding") or "").lower()
+    if "gzip" in enc:
+        try:
+            raw = gzip.decompress(raw)
+        except Exception:
+            pass
+    elif "deflate" in enc:
+        try:
+            raw = zlib.decompress(raw)
+        except Exception:
+            try:
+                raw = zlib.decompress(raw, -zlib.MAX_WBITS)
+            except Exception:
+                pass
+    charset = "utf-8"
+    ctype = (http_headers.get("Content-Type") or "").lower()
+    if "charset=" in ctype:
+        cand = ctype.split("charset=")[-1].split(";")[0].strip()
+        if cand:
+            charset = cand
+    try:
+        return raw.decode(charset, "replace")
+    except LookupError:
+        return raw.decode("utf-8", "replace")
+
+
 def _http_request(method, url, body, headers):
     import urllib.request
     import urllib.error
@@ -2451,11 +2483,11 @@ def _http_request(method, url, body, headers):
     req = urllib.request.Request(url, data=data, method=method, headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            text = resp.read().decode("utf-8", "replace")
+            text = _decode_http_body(resp.read(), resp.headers)
             return {"status": resp.status, "body": text,
                     "headers": {k: v for k, v in resp.headers.items()}}
     except urllib.error.HTTPError as e:
-        text = e.read().decode("utf-8", "replace")
+        text = _decode_http_body(e.read(), e.headers or {})
         return {"status": e.code, "body": text,
                 "headers": {k: v for k, v in (e.headers or {}).items()}}
     except urllib.error.URLError as e:
