@@ -404,9 +404,9 @@ def no_key_screen():
 def main():
     args = sys.argv[1:]
     if "--version" in args or "-v" in args:
-        print("vanta-code " + VERSION); return
+        print("vcode " + VERSION); return
     if "--help" in args or "-h" in args:
-        print("vanta-code - a terminal coding agent that speaks Vanta.\n")
+        print("vcode - a terminal coding agent that speaks Vanta.\n")
         print("  Usage: vanta-code            start the interactive agent")
         print("         vanta-code --version  print version\n")
         print("  Needs ANTHROPIC_API_KEY or OPENROUTER_API_KEY in your environment.")
