@@ -4,6 +4,7 @@
 # http://localhost:8100 (see boot.va) for the full-screen OS feel.
 
 let PORT be 8100
+let BUILD be "b8 - tabs"
 let VNOX_HOME be path_join(home_dir(), ".vnox")
 let FS_ROOT be path_join(VNOX_HOME, "fs")
 let STATE_FILE be path_join(VNOX_HOME, "state.json")
@@ -290,7 +291,7 @@ to desktop_js()
     change j to j + "body.querySelector('#go').addEventListener('click',function(){{navigate(urlIn.value);}});urlIn.addEventListener('keydown',function(e){{if(e.key==='Enter')navigate(urlIn.value);}});"
     change j to j + "body.querySelector('#bback').addEventListener('click',back);body.querySelector('#bfwd').addEventListener('click',fwd);body.querySelector('#bhome').addEventListener('click',function(){{navigate('');}});"
     change j to j + "body.querySelector('#bext').addEventListener('click',function(){{var u=norm(urlIn.value);if(!u){{alert('Type a URL or search first.');return;}}postj('/api/open',{{url:u}},function(){{}});}});"
-    change j to j + "newTab('');}}"
+    change j to j + "newTab(window.__bgo||'');window.__bgo=null;}}"
     change j to j + "function settingsApp(body){{body.innerHTML='<div class=\"pad\"><h3 style=\"margin-top:0\">Personalization</h3><div class=\"row\">Accent <span id=\"sw\"></span></div><div class=\"row\">Wallpaper <select id=\"wp\"><option value=\"default\">Deep blue</option><option value=\"aurora\">Aurora</option><option value=\"violet\">Violet</option><option value=\"mono\">Mono</option></select></div><h3>Assistant</h3><div class=\"row\"><select id=\"prov\"><option>openrouter</option><option>anthropic</option><option>ollama-cloud</option><option>nvidia</option></select><input id=\"mdl\" placeholder=\"model\" style=\"flex:1;min-width:140px\"></div><div class=\"row\"><input id=\"key\" type=\"password\" placeholder=\"API key (blank=keep)\" style=\"flex:1;min-width:180px\"><button class=\"btn\" id=\"ssv\">Save</button><button class=\"btn ghost\" id=\"stest\">Test</button></div><div id=\"sres\" style=\"color:#9fb0d8;font-size:13px\"></div></div>';"
     change j to j + "var cols=['#4c8dff','#22c55e','#a855f7','#f59e0b','#ef4444','#06b6d4'],sw=body.querySelector('#sw');cols.forEach(function(c){{var s=elx('span','swatch'+(c===VNOX.accent?' on':''));s.style.background=c;s.addEventListener('click',function(){{VNOX.accent=c;document.documentElement.style.setProperty('--accent',c);body.querySelectorAll('.swatch').forEach(function(x){{x.classList.remove('on');}});s.classList.add('on');saveState();}});sw.appendChild(s);}});"
     change j to j + "var wp=body.querySelector('#wp');wp.value=VNOX.wallpaper;wp.addEventListener('change',function(){{VNOX.wallpaper=wp.value;applyWall();saveState();}});body.querySelector('#prov').value=VNOX.provider;body.querySelector('#mdl').value=VNOX.model;"
@@ -302,7 +303,7 @@ to desktop_js()
     change j to j + "document.getElementById('startbtn').addEventListener('click',function(e){{e.stopPropagation();document.getElementById('start').classList.toggle('open');}});"
     change j to j + "document.addEventListener('click',function(e){{if(!e.target.closest('#start')&&!e.target.closest('#startbtn'))closeStart();}});"
     change j to j + "var ops=document.querySelectorAll('[data-open]');for(var i=0;i<ops.length;i++){{(function(el){{el.addEventListener('click',function(){{openApp(el.getAttribute('data-open'));}});}})(ops[i]);}}"
-    change j to j + "function tick(){{document.getElementById('clk').textContent=new Date().toLocaleTimeString([],{{hour:'2-digit',minute:'2-digit'}});}}tick();setInterval(tick,1000);applyWall();openApp('studio');"
+    change j to j + "function tick(){{document.getElementById('clk').textContent=new Date().toLocaleTimeString([],{{hour:'2-digit',minute:'2-digit'}});}}tick();setInterval(tick,1000);applyWall();var BP=new URLSearchParams(location.search);if(BP.get('go'))window.__bgo=BP.get('go');openApp(BP.get('app')||'studio');"
     change j to j + "}})();"
     give back j
 end
@@ -328,7 +329,7 @@ to desktop_html()
     let h be "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
     change h to h + "<title>V-NOx 1</title><style>" + desktop_css() + "</style></head>"
     change h to h + "<body style='--accent:" + state["accent"] + "'>"
-    change h to h + "<div id='top'><span class='br'>V-NOx</span><span class='st'><span id='clk'>--:--</span> &#9737; &#128268;</span></div>"
+    change h to h + "<div id='top'><span class='br'>V-NOx</span> <span style='color:#5b6b92;font-size:11px'>" + BUILD + "</span><span class='st'><span id='clk'>--:--</span> &#9737; &#128268;</span></div>"
     change h to h + "<div id='desk'></div>"
     change h to h + "<div id='dock'>" + dock_icon("studio", "&lt;/&gt;") + dock_icon("files", "&#128193;") + dock_icon("terminal", "&gt;_") + dock_icon("browser", "&#127760;") + dock_icon("settings", "&#9881;") + "</div>"
     change h to h + "<div id='bar'><div class='start' id='startbtn'>&#9638;</div><div id='tasks' style='display:flex;gap:6px'></div></div>"
@@ -351,10 +352,10 @@ to handle(req)
     let path be req["path"]
     let q be req["query"]
     if path is "/"
-        give back boot_html()
+        give back {"status": 200, "body": boot_html(), "type": "text/html; charset=utf-8", "headers": {"Cache-Control": "no-store, max-age=0"}}
     end
     if path is "/desktop"
-        give back desktop_html()
+        give back {"status": 200, "body": desktop_html(), "type": "text/html; charset=utf-8", "headers": {"Cache-Control": "no-store, max-age=0"}}
     end
     if path is "/api/sys"
         give back cors_json({"clock": clock(), "date": today(), "version": "V-NOx 1 / Vanta 4.3"})
