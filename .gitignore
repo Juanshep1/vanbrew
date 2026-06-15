@@ -1,2 +1,8 @@
 __pycache__/
 *.pyc
+kernel/*.o
+kernel/*.elf
+kernel/*.iso
+kernel/kfull.c
+kernel/kernel.va.c
+kernel/isoroot/
