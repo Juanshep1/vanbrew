@@ -1,22 +1,57 @@
-say "================================================"
-say "  V-NOx kernel  -  written in Vanta"
-say "  running on bare metal: no OS, no Python."
-say "================================================"
-say ""
-let total be 0
-for each i in range(1, 101)
-    change total to total + i
+let navy be rgb(20, 26, 46)
+let accent be rgb(76, 141, 255)
+let panelc be rgb(26, 33, 56)
+let body be rgb(14, 20, 38)
+let white be rgb(231, 238, 252)
+let dim be rgb(150, 170, 210)
+let titlefg be rgb(6, 18, 44)
+
+wallpaper()
+let sw be screen_w()
+let sh be screen_h()
+
+fill(0, 0, sw, 30, navy)
+text_big(16, 7, "V-NOx", accent)
+text_at(sw - 150, 11, "Vanta kernel - bare metal", dim)
+
+to dockicon(y, c)
+    fill(20, y, 36, 36, c)
 end
-say "kernel computed sum 1..100 = " + text(total)
-to fib(n)
-    if n is under 2
-        give back n
+fill(12, 130, 52, 290, panelc)
+dockicon(140, accent)
+dockicon(186, rgb(34, 197, 94))
+dockicon(232, rgb(168, 85, 247))
+dockicon(278, rgb(245, 158, 11))
+dockicon(324, rgb(6, 182, 212))
+
+to window(x, y, w, h, title)
+    fill(x, y, w, h, body)
+    fill(x, y, w, 30, accent)
+    text_at(x + 12, y + 11, title, titlefg)
+end
+
+window(180, 80, 560, 300, "Vanta Studio")
+text_at(198, 130, "to greet(name)", white)
+text_at(198, 150, "    say \"hello \" + name", white)
+text_at(198, 170, "end", white)
+text_at(198, 200, "say greet(\"V-NOx\")", white)
+text_at(198, 240, "this desktop is drawn by Vanta code,", dim)
+text_at(198, 258, "compiled to a kernel, on bare metal.", dim)
+text_at(198, 286, "no operating system. no python.", dim)
+
+fill(sw / 2 - 150, sh - 46, 300, 36, panelc)
+text_at(sw / 2 - 132, sh - 35, "start    studio    files    term", dim)
+
+fill(180, 398, 560, 150, body)
+fill(180, 398, 560, 26, rgb(40, 60, 100))
+text_at(194, 406, "V-NOx Terminal  -  type on the keyboard:", white)
+let buf be "> "
+text_at(196, 440, buf, rgb(120, 230, 160))
+while yes
+    let k be key()
+    if k is not ""
+        change buf to buf + k
+        fill(190, 438, 540, 20, body)
+        text_at(196, 440, buf, rgb(120, 230, 160))
     end
-    give back fib(n - 1) + fib(n - 2)
 end
-say "kernel computed fib(20) = " + text(fib(20))
-let words be ["Vanta", "compiled", "itself", "to", "a", "kernel"]
-say join(words, " ")
-say "sorted demo: " + text(sort([5, 2, 8, 1, 9, 3]))
-say ""
-say "V-NOx kernel ready. (this is real machine code on the CPU)"
