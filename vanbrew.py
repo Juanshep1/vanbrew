@@ -78,8 +78,8 @@ BUILTIN = {
         "bin": [{"name": "vself", "kind": "vanta", "main": "vanta.va"}],
     },
     "vc": {
-        "version": "0.4",
-        "summary": "vc - a self-hosting Vanta-to-C compiler (in Vanta) with a full C runtime: compiles serve()/sockets/HTTP/JSON/filesystem - even V-NOx (the OS) and itself - to NATIVE, Python-free binaries (needs cc)",
+        "version": "0.5",
+        "summary": "vc - a self-hosting Vanta-to-C compiler (in Vanta) with a full C runtime: compiles serve()/sockets/HTTP/JSON/filesystem + an Ebb garbage collector - even V-NOx (the OS) and itself - to NATIVE, Python-free binaries with bounded memory (needs cc)",
         "deps": ["vanta"],
         "files": [{"source": _u("/packages/vc/vc.va"), "as": "vc.va"}],
         "bin": [{"name": "vc", "kind": "vanta", "main": "vc.va"}],
