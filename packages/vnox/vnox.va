@@ -243,7 +243,7 @@ to desktop_js()
     change j to j + "inp.addEventListener('keydown',function(e){{if(e.key!=='Enter')return;var line=inp.value;inp.value='';pr('> '+line);var t=line.trim();if(t==='')return;if(t==='clear'){{out.textContent='';return;}}if(t==='help'){{pr('ls, cat <file>, run <file>, clear - anything else runs as Vanta.');return;}}if(t==='ls'){{getj('/api/fs/list?path=',function(d){{pr(d.entries.map(function(en){{return (en.dir?'[dir] ':'      ')+en.name;}}).join('\\n')||'(empty)');}});return;}}if(t.indexOf('cat ')===0){{getj('/api/fs/read?path='+encodeURIComponent(t.slice(4).trim()),function(d){{pr(d.content!=null?d.content:'no such file');}});return;}}if(t.indexOf('run ')===0){{getj('/api/fs/read?path='+encodeURIComponent(t.slice(4).trim()),function(d){{if(d.content==null){{pr('no such file');return;}}rc(d.content);}});return;}}rc(t);}});setTimeout(function(){{inp.focus();}},60);}}"
     change j to j + "function calcApp(body){{body.innerHTML='<div class=\"calc\"><div class=\"disp\" id=\"cd\">0</div><div class=\"cg\" id=\"cg\"></div></div>';var d=body.querySelector('#cd'),g=body.querySelector('#cg'),cur='';var ks=['7','8','9','/','4','5','6','*','1','2','3','-','0','.','=','+','C'];ks.forEach(function(k){{var op=(k==='/'||k==='*'||k==='-'||k==='+'||k==='=');var b=elx('b',op?'op':'',k);b.addEventListener('click',function(){{if(k==='C'){{cur='';d.textContent='0';return;}}if(k==='='){{postj('/api/run',{{code:'say text('+cur+')'}},function(r){{d.textContent=r.ok?r.output.trim():'err';}});return;}}cur+=k;d.textContent=cur;}});g.appendChild(b);}});}}"
     change j to j + "function clockApp(body){{body.innerHTML='<div class=\"bigclock\"><div class=\"t\" id=\"bct\">--:--</div><div class=\"d\" id=\"bcd\"></div></div>';var t=body.querySelector('#bct'),dd=body.querySelector('#bcd');function up(){{var n=new Date();t.textContent=n.toLocaleTimeString();dd.textContent=n.toDateString();}}up();setInterval(up,1000);}}"
-    change j to j + "function browserApp(body){{body.style.display='flex';body.style.flexDirection='column';body.dataset.mode='reader';body.innerHTML='<div class=\"addr\"><button class=\"btn ghost\" id=\"bhome\" title=\"Home\">&#127968;</button><input id=\"url\" placeholder=\"Search the web or enter a URL\" style=\"flex:1\"><button class=\"btn\" id=\"go\">Go</button><button class=\"btn ghost\" id=\"bmode\" title=\"Reader proxies pages; Direct embeds them\">Reader</button><button class=\"btn ghost\" id=\"bext\" title=\"Open in system browser\">Open &#8599;</button></div><div class=\"bnote\">Reader mode renders most sites read-only through Vanta. For logins, video or heavy JS, use <b>Open &#8599;</b> (your system browser).</div><div id=\"bview\" style=\"flex:1;position:relative;overflow:auto;background:#0a0f1e\"></div>';"
+    change j to j + "function browserApp(body){{body.style.display='flex';body.style.flexDirection='column';body.dataset.mode='reader';body.innerHTML='<div class=\"addr\"><button class=\"btn ghost\" id=\"bhome\" title=\"Home\">&#127968;</button><input id=\"url\" placeholder=\"Search the web or enter a URL\" style=\"flex:1\"><button class=\"btn\" id=\"go\">Go</button><button class=\"btn ghost\" id=\"bmode\" title=\"Reader proxies pages; Direct embeds them\">Reader</button><button class=\"btn ghost\" id=\"bext\" title=\"Open this page in Firefox\">Firefox &#8599;</button></div><div class=\"bnote\">Reader mode renders most sites read-only through Vanta. For logins, video or heavy JS, use <b>Firefox &#8599;</b> to open the page in Firefox.</div><div id=\"bview\" style=\"flex:1;position:relative;overflow:auto;background:#0a0f1e\"></div>';"
     change j to j + "var bview=body.querySelector('#bview'),urlIn=body.querySelector('#url');"
     change j to j + "function norm(u){{u=(u||'').trim();if(u==='')return '';var i=u.indexOf('://');if(i>0&&i<8)return u;if(u.indexOf(' ')<0&&u.indexOf('.')>0)return 'https://'+u;return 'https://duckduckgo.com/html/?q='+encodeURIComponent(u);}}"
     change j to j + "function go(raw){{var u=norm(raw);if(!u)return;urlIn.value=u;var local=(u.indexOf('://localhost')>=0||u.indexOf('://127.0.0.1')>=0);var direct=(body.dataset.mode==='direct')||local;var src=direct?u:('/api/proxy?u='+encodeURIComponent(u));bview.innerHTML='<iframe class=\"frame\" id=\"bf\"></iframe>';bview.querySelector('#bf').src=src;}}"
@@ -422,7 +422,7 @@ to handle(req)
             change u to b["url"]
         end
         if starts_with(u, "http://") or starts_with(u, "https://")
-            open_url(u)
+            open_in_firefox(u)
             give back cors_json({"ok": yes})
         end
         give back cors_json({"ok": no, "error": "only http(s) urls allowed"})
@@ -433,6 +433,21 @@ end
 # Open the desktop in a chromeless, fullscreen app-window a moment after the
 # server comes up - works on macOS, Linux and Windows, with any Chromium-class
 # browser, falling back to the default browser. Set VNOX_NO_WINDOW=1 for headless.
+to open_in_firefox(url)
+    let osn be os_name()
+    attempt
+        if osn is "mac"
+            run("open -a Firefox '" + url + "' >/dev/null 2>&1 || open '" + url + "' >/dev/null 2>&1")
+        otherwise if osn is "windows"
+            run("start firefox \"" + url + "\" || start \"\" \"" + url + "\"")
+        otherwise
+            run("(firefox '" + url + "' || xdg-open '" + url + "') >/dev/null 2>&1 &")
+        end
+    rescue e
+        open_url(url)
+    end
+end
+
 to open_window()
     let url be "http://localhost:" + text(PORT) + "/"
     let osn be os_name()
