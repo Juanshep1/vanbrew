@@ -134,6 +134,29 @@ to cors_json(obj)
     give back {"status": 200, "body": obj, "type": "application/json", "headers": {"Access-Control-Allow-Origin": "*"}}
 end
 
+# Sites that lean on logins, video or heavy JS - Reader mode (a read-only HTML
+# proxy) can't run them, so V-NOx offers to open them in Firefox instead.
+to needs_full(u)
+    let heavy be ["youtube.com", "youtu.be", "mail.google.com", "docs.google.com", "drive.google.com", "maps.google.com", "accounts.google.com", "facebook.com", "instagram.com", "x.com", "twitter.com", "netflix.com", "spotify.com", "discord.com", "figma.com", "reddit.com", "twitch.tv"]
+    for each d in heavy
+        if d is in u
+            give back yes
+        end
+    end
+    give back no
+end
+
+to firefox_interstitial(u)
+    let esc be replace(replace(u, "\"", "%22"), "'", "%27")
+    let h be "<!doctype html><html><head><meta charset='utf-8'><style>body{{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-family:system-ui;background:radial-gradient(700px 480px at 50% 0%,#16264f,#0a0f1e 65%);color:#e9eefc;padding:30px;text-align:center}}.lg{{font-size:23px;font-weight:800;color:#4c8dff}}.su{{color:#9fb0d8;max-width:440px;line-height:1.6;font-size:14px}}.u{{color:#7f93bb;font-size:12px;word-break:break-all;max-width:440px}}button{{font:inherit;font-size:14px;font-weight:600;padding:11px 18px;border:0;border-radius:9px;cursor:pointer;margin:5px}}.p{{background:#ff7139;color:#1a0a02}}.g{{background:rgba(255,255,255,.1);color:#dbe5ff}}</style></head><body>"
+    change h to h + "<div class='lg'>This site needs a full browser</div><div class='u'>" + u + "</div>"
+    change h to h + "<div class='su'>It relies on logins, video or heavy JavaScript that Reader mode cannot run. Open it in Firefox for the full experience.</div>"
+    change h to h + "<div><button class='p' onclick=\"fetch('/api/open',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{url:'" + esc + "'}})}});this.textContent='Opening in Firefox...'\">Open in Firefox &#8599;</button>"
+    change h to h + "<button class='g' onclick=\"location.href='/api/proxy?force=1&amp;u='+encodeURIComponent('" + esc + "')\">Try Reader anyway</button></div>"
+    change h to h + "</body></html>"
+    give back h
+end
+
 to desktop_css()
     let s be ""
     change s to s + "*{{box-sizing:border-box;-webkit-user-select:none;user-select:none}}"
@@ -245,9 +268,9 @@ to desktop_js()
     change j to j + "function clockApp(body){{body.innerHTML='<div class=\"bigclock\"><div class=\"t\" id=\"bct\">--:--</div><div class=\"d\" id=\"bcd\"></div></div>';var t=body.querySelector('#bct'),dd=body.querySelector('#bcd');function up(){{var n=new Date();t.textContent=n.toLocaleTimeString();dd.textContent=n.toDateString();}}up();setInterval(up,1000);}}"
     change j to j + "function browserApp(body){{body.style.display='flex';body.style.flexDirection='column';body.dataset.mode='reader';body.innerHTML='<div class=\"addr\"><button class=\"btn ghost\" id=\"bhome\" title=\"Home\">&#127968;</button><input id=\"url\" placeholder=\"Search the web or enter a URL\" style=\"flex:1\"><button class=\"btn\" id=\"go\">Go</button><button class=\"btn ghost\" id=\"bmode\" title=\"Reader proxies pages; Direct embeds them\">Reader</button><button class=\"btn ghost\" id=\"bext\" title=\"Open this page in Firefox\">Firefox &#8599;</button></div><div class=\"bnote\">Reader mode renders most sites read-only through Vanta. For logins, video or heavy JS, use <b>Firefox &#8599;</b> to open the page in Firefox.</div><div id=\"bview\" style=\"flex:1;position:relative;overflow:auto;background:#0a0f1e\"></div>';"
     change j to j + "var bview=body.querySelector('#bview'),urlIn=body.querySelector('#url');"
-    change j to j + "function norm(u){{u=(u||'').trim();if(u==='')return '';var i=u.indexOf('://');if(i>0&&i<8)return u;if(u.indexOf(' ')<0&&u.indexOf('.')>0)return 'https://'+u;return 'https://html.duckduckgo.com/html/?q='+encodeURIComponent(u);}}"
+    change j to j + "function norm(u){{u=(u||'').trim();if(u==='')return '';var i=u.indexOf('://');if(i>0&&i<8)return u;if(u.indexOf(' ')<0&&u.indexOf('.')>0)return 'https://'+u;return 'https://www.mojeek.com/search?q='+encodeURIComponent(u);}}"
     change j to j + "function go(raw){{var u=norm(raw);if(!u)return;urlIn.value=u;var local=(u.indexOf('://localhost')>=0||u.indexOf('://127.0.0.1')>=0);var direct=(body.dataset.mode==='direct')||local;var src=direct?u:('/api/proxy?u='+encodeURIComponent(u));bview.innerHTML='<iframe class=\"frame\" id=\"bf\"></iframe>';bview.querySelector('#bf').src=src;}}"
-    change j to j + "function bhome(){{bview.innerHTML='<div class=\"bhome\"><div class=\"bh-logo\">V&#8209;NOx Browser</div><div class=\"bh-sub\">real internet, served through Vanta</div><div class=\"bh-search\"><input id=\"bq\" placeholder=\"Search DuckDuckGo or type a URL\"><button class=\"btn\" id=\"bqg\">Search</button></div><div class=\"bh-grid\" id=\"bgrid\"></div></div>';"
+    change j to j + "function bhome(){{bview.innerHTML='<div class=\"bhome\"><div class=\"bh-logo\">V&#8209;NOx Browser</div><div class=\"bh-sub\">real internet, served through Vanta</div><div class=\"bh-search\"><input id=\"bq\" placeholder=\"Search the web or type a URL\"><button class=\"btn\" id=\"bqg\">Search</button></div><div class=\"bh-grid\" id=\"bgrid\"></div></div>';"
     change j to j + "var L=[['Wikipedia','https://en.wikipedia.org','&#128214;'],['Hacker News','https://news.ycombinator.com','&#128240;'],['MDN','https://developer.mozilla.org','&#128221;'],['Example.com','https://example.com','&#127760;'],['Topdeck','http://localhost:8090','&#9824;'],['Vaeldric','http://localhost:8080','&#10022;']];"
     change j to j + "var g=bview.querySelector('#bgrid');L.forEach(function(x){{var t=elx('div','bh-tile','<span class=\"i\">'+x[2]+'</span><span class=\"n\">'+x[0]+'</span>');t.addEventListener('click',function(){{go(x[1]);}});g.appendChild(t);}});"
     change j to j + "var bq=bview.querySelector('#bq');function s(){{var v=bq.value.trim();if(v)go(v);}}bview.querySelector('#bqg').addEventListener('click',s);bq.addEventListener('keydown',function(e){{if(e.key==='Enter')s();}});setTimeout(function(){{bq.focus();}},50);}}"
@@ -401,6 +424,13 @@ to handle(req)
         end
         if u is ""
             give back {"status": 400, "body": "missing url", "type": "text/plain"}
+        end
+        let force be ""
+        if "force" is in q
+            change force to q["force"]
+        end
+        if force is "" and needs_full(u)
+            give back {"status": 200, "type": "text/html; charset=utf-8", "body": firefox_interstitial(u)}
         end
         attempt
             let resp be http_get(u, {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Accept": "text/html,application/xhtml+xml"})
