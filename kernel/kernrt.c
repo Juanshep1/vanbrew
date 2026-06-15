@@ -74,6 +74,13 @@ static const u8 FONT[95][8]={
 {0,0,99,54,28,54,99,0},{0,0,51,51,51,62,48,31},{0,0,63,25,12,38,63,0},{56,12,12,7,12,12,56,0},{24,24,24,0,24,24,24,0},{7,12,12,56,12,12,7,0},{110,59,0,0,0,0,0,0}};
 static void drawchar(int x,int y,char c,u32 col,int sc){ if(c<32||c>126)return; const u8* g=FONT[c-32]; for(int r=0;r<8;r++){u8 b=g[r];for(int i=0;i<8;i++)if(b&(1<<i))fillrect(x+i*sc,y+r*sc,sc,sc,col);} }
 static void drawtext(int x,int y,const char* s,u32 col,int sc){ int cx=x; while(*s){ if(*s=='\n'){y+=8*sc+3;cx=x;} else {drawchar(cx,y,*s,col,sc);cx+=8*sc;} s++; } }
+/* ---- compositing helpers: alpha blend, lerp, additive, rounded-corner masks ---- */
+static inline u32 blendpx(u32 bg,u32 fg,int a){ if(a<0)a=0; if(a>255)a=255; int ia=255-a; u32 r=((((fg>>16)&255)*a)+(((bg>>16)&255)*ia))/255; u32 g=((((fg>>8)&255)*a)+(((bg>>8)&255)*ia))/255; u32 b=(((fg&255)*a)+((bg&255)*ia))/255; return (r<<16)|(g<<8)|b; }
+static inline void blendpx_at(int x,int y,u32 fg,int a){ if((unsigned)x>=SW||(unsigned)y>=SH)return; u32* p=&BACK[y*SW+x]; *p=blendpx(*p,fg,a); }
+static inline u32 lerpc(u32 a,u32 b,int t,int m){ if(m<=0)m=1; if(t<0)t=0; if(t>m)t=m; int ar=(a>>16)&255,ag=(a>>8)&255,ab=a&255,br=(b>>16)&255,bg=(b>>8)&255,bb=b&255; int r=ar+(br-ar)*t/m,g=ag+(bg-ag)*t/m,bl=ab+(bb-ab)*t/m; return ((u32)r<<16)|((u32)g<<8)|(u32)bl; }
+static inline u32 addpx(u32 bg,int ar,int ag,int ab){ int r=((bg>>16)&255)+ar,g=((bg>>8)&255)+ag,b=(bg&255)+ab; if(r>255)r=255; if(g>255)g=255; if(b>255)b=255; return ((u32)r<<16)|((u32)g<<8)|(u32)b; }
+static int in_round(int i,int j,int w,int h,int r){ int cx,cy; if(i<r&&j<r){cx=r;cy=r;} else if(i>=w-r&&j<r){cx=w-r-1;cy=r;} else if(i<r&&j>=h-r){cx=r;cy=h-r-1;} else if(i>=w-r&&j>=h-r){cx=w-r-1;cy=h-r-1;} else return 1; int dx=i-cx,dy=j-cy; return dx*dx+dy*dy<=r*r; }
+static int in_round_top(int i,int j,int w,int h,int r){ int cx,cy; if(i<r&&j<r){cx=r;cy=r;} else if(i>=w-r&&j<r){cx=w-r-1;cy=r;} else return 1; int dx=i-cx,dy=j-cy; return dx*dx+dy*dy<=r*r; }
 static const char SCAN[128]={0,27,'1','2','3','4','5','6','7','8','9','0','-','=','\b','\t','q','w','e','r','t','y','u','i','o','p','[',']','\n',0,'a','s','d','f','g','h','j','k','l',';',39,'`',0,92,'z','x','c','v','b','n','m',',','.','/',0,'*',0,' '};
 static char kbuf=0; static int mpkt[3],mcyc=0,mx,my,mbtn;
 static void ps2in(void){ int g=0; while((inb(0x64)&2)&&g++<200000){} }
@@ -86,13 +93,43 @@ Value v_key(void){ if(kbuf){char b[2]={kbuf,0}; kbuf=0; return STR(b);} return S
 Value v_mouse_x(void){ return NUM(mx); } Value v_mouse_y(void){ return NUM(my); } Value v_mouse_down(void){ return NUM(mbtn); }
 Value v_rgb(Value r,Value g,Value b){ return NUM((long)(((u32)r.n<<16)|((u32)g.n<<8)|(u32)b.n)); }
 Value v_fill(Value x,Value y,Value w,Value h,Value c){ fillrect(x.n,y.n,w.n,h.n,(u32)c.n); return NIL(); }
+Value v_rfill(Value vx,Value vy,Value vw,Value vh,Value vc,Value vr){ int x=vx.n,y=vy.n,w=vw.n,h=vh.n,r=vr.n; u32 c=(u32)vc.n; for(int j=0;j<h;j++)for(int i=0;i<w;i++)if(in_round(i,j,w,h,r))putpx(x+i,y+j,c); return NIL(); }
+Value v_rgrad(Value vx,Value vy,Value vw,Value vh,Value vt,Value vb,Value vr){ int x=vx.n,y=vy.n,w=vw.n,h=vh.n,r=vr.n; u32 ct=(u32)vt.n,cb=(u32)vb.n; for(int j=0;j<h;j++){ u32 c=lerpc(ct,cb,j,h-1); for(int i=0;i<w;i++)if(in_round(i,j,w,h,r))putpx(x+i,y+j,c);} return NIL(); }
+Value v_rgradt(Value vx,Value vy,Value vw,Value vh,Value vt,Value vb,Value vr){ int x=vx.n,y=vy.n,w=vw.n,h=vh.n,r=vr.n; u32 ct=(u32)vt.n,cb=(u32)vb.n; for(int j=0;j<h;j++){ u32 c=lerpc(ct,cb,j,h-1); for(int i=0;i<w;i++)if(in_round_top(i,j,w,h,r))putpx(x+i,y+j,c);} return NIL(); }
+Value v_rblend(Value vx,Value vy,Value vw,Value vh,Value vc,Value va,Value vr){ int x=vx.n,y=vy.n,w=vw.n,h=vh.n,r=vr.n,a=va.n; u32 c=(u32)vc.n; for(int j=0;j<h;j++)for(int i=0;i<w;i++)if(in_round(i,j,w,h,r))blendpx_at(x+i,y+j,c,a); return NIL(); }
+Value v_rborder(Value vx,Value vy,Value vw,Value vh,Value vc,Value vr){ int x=vx.n,y=vy.n,w=vw.n,h=vh.n,r=vr.n; u32 c=(u32)vc.n; for(int j=0;j<h;j++)for(int i=0;i<w;i++){ if(!in_round(i,j,w,h,r))continue; if(in_round(i-1,j,w,h,r)&&in_round(i+1,j,w,h,r)&&in_round(i,j-1,w,h,r)&&in_round(i,j+1,w,h,r))continue; blendpx_at(x+i,y+j,c,165);} return NIL(); }
+Value v_shadow(Value vx,Value vy,Value vw,Value vh,Value vr){ int x=vx.n,y=vy.n,w=vw.n,h=vh.n,r=vr.n; for(int k=0;k<5;k++){ int sp=3+k*4,gx=x-sp,gy=y-sp+8,gw=w+2*sp,gh=h+2*sp,rr=r+sp; for(int j=0;j<gh;j++)for(int i=0;i<gw;i++)if(in_round(i,j,gw,gh,rr))blendpx_at(gx+i,gy+j,0x000000,9);} return NIL(); }
 Value v_text_at(Value x,Value y,Value s,Value c){ drawtext(x.n,y.n,tostr(s),(u32)c.n,1); return NIL(); }
 Value v_text_big(Value x,Value y,Value s,Value c){ drawtext(x.n,y.n,tostr(s),(u32)c.n,2); return NIL(); }
 Value v_screen_w(void){ return NUM(SW); } Value v_screen_h(void){ return NUM(SH); }
-Value v_wallpaper(void){ for(u32 y=0;y<SH;y++){u32 t=(y*130)/SH;u32 c=((0x0a+t/16)<<16)|((0x12+t/4)<<8)|(0x26+t);for(u32 x=0;x<SW;x++)WALL[y*SW+x]=c;} for(u32 i=0;i<SW*SH;i++)BACK[i]=WALL[i]; return NIL(); }
+Value v_wallpaper(void){
+  int cx1=(int)(SW*28/100),cy1=(int)(SH*15/100);   /* teal aurora    */
+  int cx2=(int)(SW*82/100),cy2=(int)(SH*8/100);    /* violet aurora  */
+  int cx3=(int)(SW*55/100),cy3=(int)(SH*96/100);   /* magenta floor  */
+  long R2=(long)(SH*72/100)*(long)(SH*72/100); if(R2<1)R2=1;
+  int mcx=(int)SW/2,mcy=(int)SH/2; long md2=(long)mcx*mcx+(long)mcy*mcy; if(md2<1)md2=1;
+  for(u32 y=0;y<SH;y++)for(u32 x=0;x<SW;x++){
+    u32 base=lerpc(0x0a0a12,0x16122c,(int)(y*255/SH),255);
+    long d1=(long)((int)x-cx1)*((int)x-cx1)+(long)((int)y-cy1)*((int)y-cy1);
+    long d2=(long)((int)x-cx2)*((int)x-cx2)+(long)((int)y-cy2)*((int)y-cy2);
+    long d3=(long)((int)x-cx3)*((int)x-cx3)+(long)((int)y-cy3)*((int)y-cy3);
+    int g1=(int)(62-d1*62/R2); if(g1<0)g1=0;
+    int g2=(int)(48-d2*48/R2); if(g2<0)g2=0;
+    int g3=(int)(38-d3*38/R2); if(g3<0)g3=0;
+    int ar=g1*20/100+g2*58/100+g3*92/100;
+    int ag=g1*100/100+g2*38/100+g3*22/100;
+    int ab=g1*88/100+g2*100/100+g3*72/100;
+    u32 c=addpx(base,ar,ag,ab);
+    long dc=(long)((int)x-mcx)*((int)x-mcx)+(long)((int)y-mcy)*((int)y-mcy);
+    c=blendpx(c,0x000000,(int)(dc*72/md2));
+    if((x%48==0)&&(y%48==0))c=addpx(c,8,9,13);
+    WALL[y*SW+x]=c;
+  }
+  for(u32 i=0;i<SW*SH;i++)BACK[i]=WALL[i]; return NIL();
+}
 Value v_clear(void){ for(u32 i=0;i<SW*SH;i++)BACK[i]=WALL[i]; return NIL(); }
 Value v_present(void){ for(u32 y=0;y<SH;y++){ u32* d=(u32*)(FB+y*PITCH); u32* s=&BACK[y*SW]; for(u32 x=0;x<SW;x++)d[x]=s[x]; } return NIL(); }
-Value v_cursor(Value vx,Value vy){ int x=vx.n,y=vy.n; for(int r=0;r<16;r++){ int w=r+1; if(w>10)w=10; for(int c=0;c<w;c++) putpx(x+c+1,y+r+1,0x000000); } for(int r=0;r<16;r++){ int w=r+1; if(w>10)w=10; for(int c=0;c<w;c++) putpx(x+c,y+r,0xffffff); } return NIL(); }
+Value v_cursor(Value vx,Value vy){ int x=vx.n,y=vy.n; for(int r=0;r<16;r++){ int w=r+1; if(w>10)w=10; for(int c=0;c<w;c++) blendpx_at(x+c+2,y+r+3,0x000000,70); } for(int r=0;r<16;r++){ int w=r+1; if(w>10)w=10; for(int c=0;c<w;c++) putpx(x+c+1,y+r+1,0x05070d); } for(int r=0;r<16;r++){ int w=r+1; if(w>10)w=10; for(int c=0;c<w;c++) putpx(x+c,y+r,0xffffff); } return NIL(); }
 static unsigned long frame_mark=0;
 Value v_gc_mark(void){ frame_mark=hp; return NIL(); }
 Value v_frame_reset(void){ hp=frame_mark; return NIL(); }

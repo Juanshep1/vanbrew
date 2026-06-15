@@ -1,21 +1,33 @@
-let navy be rgb(20, 26, 46)
-let accent be rgb(76, 141, 255)
-let panelc be rgb(26, 33, 56)
-let body be rgb(14, 20, 38)
-let white be rgb(231, 238, 252)
-let dim be rgb(150, 170, 210)
-let titlefg be rgb(6, 18, 44)
-let green be rgb(120, 230, 160)
-let closec be rgb(220, 70, 90)
+let teal be rgb(55, 224, 200)
+let violet be rgb(165, 120, 255)
+let amber be rgb(245, 180, 70)
+let coral be rgb(255, 105, 116)
+let white be rgb(232, 238, 250)
+let dim be rgb(150, 166, 198)
+let ink be rgb(5, 8, 14)
+let rim be rgb(120, 150, 205)
+let glass_top be rgb(32, 37, 58)
+let glass_bot be rgb(17, 20, 34)
+let bar_top be rgb(44, 51, 80)
+let bar_bot be rgb(30, 35, 56)
+let hair be rgb(58, 68, 104)
+let frost be rgb(24, 28, 48)
 
 let sw be screen_w()
 let sh be screen_h()
+let dock_x be 16
+let dock_y be 150
+let dock_w be 64
+let dock_h be 300
+let tile_x be 26
+let tile_w be 44
+let tile_h be 44
 
 let windows be []
-add {"x": 150, "y": 60, "w": 480, "h": 230, "title": "Vanta Studio", "kind": "studio", "open": 1} to windows
-add {"x": 250, "y": 330, "w": 480, "h": 150, "title": "V-NOx Terminal", "kind": "term", "open": 1} to windows
-add {"x": 320, "y": 120, "w": 420, "h": 200, "title": "Files", "kind": "files", "open": 0} to windows
-add {"x": 360, "y": 170, "w": 400, "h": 180, "title": "About V-NOx", "kind": "about", "open": 0} to windows
+add {"x": 168, "y": 84, "w": 470, "h": 250, "title": "Vanta Studio", "kind": "studio", "accent": teal, "open": 1} to windows
+add {"x": 250, "y": 392, "w": 470, "h": 150, "title": "V-NOx Terminal", "kind": "term", "accent": violet, "open": 1} to windows
+add {"x": 360, "y": 150, "w": 420, "h": 210, "title": "Files", "kind": "files", "accent": amber, "open": 0} to windows
+add {"x": 420, "y": 220, "w": 400, "h": 200, "title": "About V-NOx", "kind": "about", "accent": coral, "open": 0} to windows
 let buf be "> "
 let drag be -1
 let dox be 0
@@ -23,55 +35,84 @@ let doy be 0
 let front be 0
 let prevdown be 0
 
-to draw_window(w)
-    fill(w["x"], w["y"], w["w"], w["h"], body)
-    fill(w["x"], w["y"], w["w"], 30, accent)
-    text_at(w["x"] + 12, w["y"] + 11, w["title"], titlefg)
-    fill(w["x"] + w["w"] - 26, w["y"] + 7, 16, 16, closec)
-    text_at(w["x"] + w["w"] - 21, w["y"] + 11, "x", white)
-    if w["kind"] is "studio"
-        text_at(w["x"] + 16, w["y"] + 50, "to greet(name)", white)
-        text_at(w["x"] + 16, w["y"] + 70, "    say \"hi \" + name", white)
-        text_at(w["x"] + 16, w["y"] + 90, "end", white)
-        text_at(w["x"] + 16, w["y"] + 124, "drag titles, X to close,", dim)
-        text_at(w["x"] + 16, w["y"] + 142, "click the dock to open apps.", dim)
-        text_at(w["x"] + 16, w["y"] + 160, "no OS. no python. bare metal.", dim)
-    end
-    if w["kind"] is "term"
-        text_at(w["x"] + 14, w["y"] + 50, buf, green)
-        text_at(w["x"] + 14, w["y"] + 100, "(type on the keyboard)", dim)
-    end
-    if w["kind"] is "files"
-        text_at(w["x"] + 16, w["y"] + 50, "Documents/", accent)
-        text_at(w["x"] + 16, w["y"] + 72, "welcome.va", white)
-        text_at(w["x"] + 16, w["y"] + 92, "readme.txt", white)
-        text_at(w["x"] + 16, w["y"] + 112, "notes.txt", white)
-        text_at(w["x"] + 16, w["y"] + 144, "(a files window)", dim)
-    end
-    if w["kind"] is "about"
-        text_big(w["x"] + 16, w["y"] + 48, "V-NOx", accent)
-        text_at(w["x"] + 16, w["y"] + 84, "the first OS desktop", white)
-        text_at(w["x"] + 16, w["y"] + 102, "written in Vanta,", white)
-        text_at(w["x"] + 16, w["y"] + 120, "running on bare metal.", white)
-        text_at(w["x"] + 16, w["y"] + 146, "kernel, mouse, windows -", dim)
-        text_at(w["x"] + 16, w["y"] + 164, "all compiled from Vanta.", dim)
-    end
+to tile_y(i)
+    give back dock_y + 16 + i * 60
 end
 
 to dock_hit(my)
-    if my is at least 130 and my is at most 166
-        give back 0
-    end
-    if my is at least 176 and my is at most 212
-        give back 1
-    end
-    if my is at least 222 and my is at most 258
-        give back 2
-    end
-    if my is at least 268 and my is at most 304
-        give back 3
+    let i be 0
+    while i is at most 3
+        let ty be tile_y(i)
+        if my is at least ty and my is at most (ty + tile_h)
+            give back i
+        end
+        change i to i + 1
     end
     give back -1
+end
+
+to shadowtext(x, y, s, c)
+    text_at(x + 1, y + 1, s, ink)
+    text_at(x, y, s, c)
+end
+
+to bigshadow(x, y, s, c)
+    text_big(x + 2, y + 2, s, ink)
+    text_big(x, y, s, c)
+end
+
+to draw_tile(i, glyph, col)
+    let ty be tile_y(i)
+    if windows[i]["open"] is 1
+        rblend(tile_x - 5, ty - 5, tile_w + 10, tile_h + 10, col, 45, 13)
+        fill(dock_x + 3, ty + 13, 3, 18, col)
+    end
+    rfill(tile_x, ty, tile_w, tile_h, col, 11)
+    rblend(tile_x, ty, tile_w, 20, white, 28, 11)
+    text_big(tile_x + 15, ty + 15, glyph, rgb(12, 16, 24))
+end
+
+to draw_window(w)
+    let x be w["x"]
+    let y be w["y"]
+    let ww be w["w"]
+    let hh be w["h"]
+    shadow(x, y, ww, hh, 11)
+    rgrad(x, y, ww, hh, glass_top, glass_bot, 11)
+    rgradt(x, y, ww, 34, bar_top, bar_bot, 11)
+    rblend(x, y, ww, 16, white, 16, 11)
+    rborder(x, y, ww, hh, rim, 11)
+    fill(x + 1, y + 34, ww - 2, 1, hair)
+    rfill(x + 13, y + 12, 10, 10, w["accent"], 4)
+    shadowtext(x + 32, y + 11, w["title"], white)
+    rfill(x + ww - 30, y + 9, 18, 18, coral, 5)
+    text_at(x + ww - 25, y + 11, "x", rgb(44, 8, 10))
+    if w["kind"] is "studio"
+        text_at(x + 18, y + 54, "to greet(name)", teal)
+        text_at(x + 18, y + 74, "    say \"hi \" + name", white)
+        text_at(x + 18, y + 94, "end", teal)
+        text_at(x + 18, y + 128, "drag titles - X closes - dock opens apps", dim)
+        text_at(x + 18, y + 150, "compiled from Vanta to native code,", dim)
+        text_at(x + 18, y + 170, "running on bare metal. no python.", dim)
+    end
+    if w["kind"] is "term"
+        text_at(x + 16, y + 54, buf, teal)
+        text_at(x + 16, y + 104, "type on the keyboard - it echoes here", dim)
+    end
+    if w["kind"] is "files"
+        text_at(x + 18, y + 54, "Documents/", amber)
+        text_at(x + 18, y + 78, "welcome.va", white)
+        text_at(x + 18, y + 98, "readme.txt", white)
+        text_at(x + 18, y + 118, "notes.txt", white)
+        text_at(x + 18, y + 152, "a files window (no disk yet)", dim)
+    end
+    if w["kind"] is "about"
+        bigshadow(x + 18, y + 54, "V-NOx 1", teal)
+        text_at(x + 18, y + 90, "the first desktop OS", white)
+        text_at(x + 18, y + 108, "written in Vanta.", white)
+        text_at(x + 18, y + 138, "kernel, mouse driver, windows -", dim)
+        text_at(x + 18, y + 156, "all compiled from Vanta to native.", dim)
+    end
 end
 
 wallpaper()
@@ -88,7 +129,7 @@ while yes
     end
     if down is 1 and prevdown is 0
         let handled be 0
-        if mx is at least 18 and mx is at most 58
+        if mx is at least (tile_x - 5) and mx is at most (tile_x + tile_w + 5)
             let di be dock_hit(my)
             if di is at least 0
                 let dw be windows[di]
@@ -100,10 +141,10 @@ while yes
         let i be 0
         for each w in windows
             if w["open"] is 1 and handled is 0
-                if mx is at least (w["x"] + w["w"] - 28) and mx is at most (w["x"] + w["w"] - 6) and my is at least (w["y"] + 5) and my is at most (w["y"] + 25)
+                if mx is at least (w["x"] + w["w"] - 32) and mx is at most (w["x"] + w["w"] - 8) and my is at least (w["y"] + 7) and my is at most (w["y"] + 29)
                     change w at "open" to 0
                     change handled to 1
-                otherwise if mx is at least w["x"] and mx is at most (w["x"] + w["w"]) and my is at least w["y"] and my is at most (w["y"] + 30)
+                otherwise if mx is at least w["x"] and mx is at most (w["x"] + w["w"]) and my is at least w["y"] and my is at most (w["y"] + 34)
                     change drag to i
                     change dox to mx - w["x"]
                     change doy to my - w["y"]
@@ -125,16 +166,25 @@ while yes
     change prevdown to down
 
     clear()
-    fill(0, 0, sw, 30, navy)
-    text_big(16, 7, "V-NOx", accent)
-    text_at(sw - 290, 11, "click dock to open  -  drag titles  -  X closes", dim)
-    fill(12, 120, 52, 250, panelc)
-    fill(20, 130, 36, 36, accent)
-    fill(20, 176, 36, 36, green)
-    fill(20, 222, 36, 36, rgb(168, 85, 247))
-    fill(20, 268, 36, 36, rgb(245, 158, 11))
-    fill(sw / 2 - 150, sh - 46, 300, 36, panelc)
-    text_at(sw / 2 - 100, sh - 35, "V-NOx 1  -  Vanta, bare metal", dim)
+    rblend(0, 0, sw, 30, rgb(18, 22, 38), 175, 0)
+    fill(0, 30, sw, 1, hair)
+    bigshadow(16, 7, "V", teal)
+    bigshadow(34, 7, "-NOx", white)
+    text_at(sw - 248, 11, "bare metal  -  no python  -  no libc", dim)
+    fill(sw - 30, 12, 7, 7, teal)
+    fill(sw - 18, 12, 7, 7, violet)
+    rblend(dock_x, dock_y, dock_w, dock_h, frost, 150, 18)
+    rborder(dock_x, dock_y, dock_w, dock_h, rim, 18)
+    draw_tile(0, "S", teal)
+    draw_tile(1, ">", violet)
+    draw_tile(2, "F", amber)
+    draw_tile(3, "i", coral)
+    let px be sw / 2 - 140
+    rblend(px, sh - 46, 280, 32, frost, 165, 14)
+    rborder(px, sh - 46, 280, 32, rim, 14)
+    rfill(px + 9, sh - 40, 20, 20, teal, 6)
+    text_at(px + 14, sh - 34, "V", rgb(8, 18, 16))
+    shadowtext(px + 40, sh - 36, "V-NOx 1   the OS written in Vanta", dim)
     let i be 0
     for each w in windows
         if w["open"] is 1 and i is not front

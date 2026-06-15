@@ -6,6 +6,13 @@ into a linear framebuffer and runs a real window manager: **draggable windows**
 with **close buttons**, a **clickable dock that opens apps** (Studio, Files,
 About), a taskbar, a PS/2 mouse cursor, and a keyboard-driven terminal.
 
+The look is **"aurora over obsidian"** — an obsidian gradient with a teal→violet
+aurora glow, a vignette, and glassy, rounded, translucent window chrome with soft
+drop shadows and luminous rims. All of it is composited by hand in the kernel
+runtime: alpha blending, rounded-corner masks, vertical gradients, and stacked
+translucent shadows — there is no GPU, no compositor, just Vanta + a freestanding
+C runtime writing pixels.
+
 ```sh
 ./build.sh        # Vanta -> C (vc) -> i386 ELF -> bootable ISO (Limine)
 ./run.sh          # boot in QEMU - drag the windows, type in the terminal
@@ -18,9 +25,11 @@ About), a taskbar, a PS/2 mouse cursor, and a keyboard-driven terminal.
   bar** (starts a drag). Drags the grabbed window, brings it to the front, and
   redraws (double-buffered).
 - `kernrt.c` — a **freestanding** runtime: Value system + framebuffer blitter +
-  double buffer + 8x8 font + **PS/2 mouse driver** + polled keyboard + a per-frame
-  bump-GC. Exposes `fill/text_at/rgb/cursor/clear/present/poll/mouse_x/mouse_y/
-  mouse_down/key/gc_mark/frame_reset` to Vanta.
+  double buffer + 8x8 font + **a software compositor** (alpha blend, rounded
+  rects, vertical gradients, soft shadows, an aurora wallpaper) + **PS/2 mouse
+  driver** + polled keyboard + a per-frame bump-GC. Exposes `fill/rfill/rgrad/
+  rgradt/rblend/rborder/shadow/text_at/text_big/rgb/cursor/wallpaper/clear/
+  present/poll/mouse_x/mouse_y/mouse_down/key/gc_mark/frame_reset` to Vanta.
 - `boot.s` requests a 1024x768x32 framebuffer (multiboot); Limine provides it.
 - `vc -k` emits `kmain()` with no libc (the kernel runtime supplies everything).
 
