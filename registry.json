@@ -157,9 +157,9 @@
       }
     ]
   },
-  "vanta-code": {
-    "version": "0.2",
-    "summary": "Vanta Code - a Claude Code-style terminal coding agent that speaks Vanta; /provider switches between Anthropic, OpenRouter and Ollama Cloud (bring your own key)",
+  "vcode": {
+    "version": "0.3",
+    "summary": "Vanta Code (vcode) - a Claude Code-style terminal coding agent that speaks Vanta; /provider switches Anthropic/OpenRouter/Ollama Cloud, /model picks a model (bring your own key)",
     "deps": [
       "vanta"
     ],
@@ -167,16 +167,21 @@
       {
         "source": {
           "kind": "url",
-          "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vanta-code/vanta-code.py"
+          "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vcode/vcode.py"
         },
-        "as": "vanta-code.py"
+        "as": "vcode.py"
       }
     ],
     "bin": [
       {
+        "name": "vcode",
+        "kind": "python",
+        "main": "vcode.py"
+      },
+      {
         "name": "vanta-code",
         "kind": "python",
-        "main": "vanta-code.py"
+        "main": "vcode.py"
       }
     ]
   }

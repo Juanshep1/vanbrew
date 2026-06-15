@@ -5,9 +5,9 @@ but specialized in the [Vanta](https://github.com/Juanshep1/vanta) language. It
 reads, writes, runs, and debugs `.va` programs for you from a chat prompt.
 
 ```sh
-vanbrew install vanta-code
-export ANTHROPIC_API_KEY="sk-ant-..."   # or OPENROUTER_API_KEY="sk-or-..."
-vanta-code
+vanbrew install vcode
+export OPENROUTER_API_KEY="sk-or-..."    # or ANTHROPIC_API_KEY / OLLAMA_API_KEY
+vcode                                    # run it in any folder; cwd is your project
 ```
 
 ```
@@ -56,12 +56,15 @@ Set any (or several) and switch live with **`/provider`**. Optional:
 
 ## Commands
 
-`/help` · `/clear` · `/provider [name]` · `/model <name>` · `/auto` · `/cwd <path>` · `/exit`
+`/help` · `/clear` · `/provider [name]` · `/model [n|name]` · `/auto` · `/cwd <path>` · `/exit`
 
-`/provider` with no argument lists the three providers and which have a key set;
-`/provider ollama` (or `openrouter` / `anthropic`) switches on the spot. Each
-provider starts on a sensible default model — use `/model` to change it (e.g.
-`/model qwen3-coder:480b` on Ollama Cloud).
+- **`/provider`** — no argument lists the three providers and which have a key
+  set; `/provider ollama` (or `openrouter` / `anthropic`) switches on the spot.
+- **`/model`** — a picker: no argument lists models for the current provider,
+  numbered; `/model 3` selects the third, or `/model <id>` sets any model.
+
+The command is **`vcode`** — run it in any terminal, or in a folder's terminal to
+work on that project (your current directory is the working directory).
 
 ## Honest scope
 

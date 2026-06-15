@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile
 import urllib.request, urllib.error
 
-VERSION = "0.2"
+VERSION = "0.3"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -317,7 +317,7 @@ HELP = """  Commands:
     /help            show this help
     /clear           start a fresh conversation
     /provider [name] list providers, or switch: anthropic | openrouter | ollama
-    /model <name>    switch model (current shown in the banner)
+    /model [n|name]  list models and pick one (/model 2), or set any id
     /auto            toggle auto-approve for writes & shell (currently: %s)
     /cwd <path>      change working directory
     /exit, /quit     leave
@@ -349,6 +349,16 @@ PROVIDERS = {
                    "model": "gpt-oss:120b",             "label": "Ollama Cloud"},
 }
 PROVIDER_ALIASES = {"ollama-cloud": "ollama", "ollamacloud": "ollama", "claude": "anthropic", "or": "openrouter"}
+
+# Suggested models per provider for the /model picker (you can also type any name).
+MODELS = {
+    "anthropic":  ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
+    "openrouter": ["anthropic/claude-sonnet-4.5", "anthropic/claude-opus-4.1", "openai/gpt-4o",
+                   "google/gemini-2.5-pro", "deepseek/deepseek-chat", "qwen/qwen3-coder",
+                   "meta-llama/llama-3.3-70b-instruct"],
+    "ollama":     ["gpt-oss:120b", "gpt-oss:20b", "qwen3-coder:480b", "deepseek-v3.1:671b",
+                   "kimi-k2:1t", "glm-4.6"],
+}
 
 def file_config():
     p = os.path.expanduser("~/.vanta-code/config.json")
@@ -423,8 +433,21 @@ def main():
             elif name == "clear": history = []; print(dim("  context cleared."))
             elif name == "auto": AUTO["on"] = not AUTO["on"]; print(dim("  auto-approve %s." % ("on" if AUTO["on"] else "off")))
             elif name == "model":
-                if rest: cfg["model"] = rest; print(dim("  model -> " + rest))
-                else: print(dim("  model: " + cfg["model"]))
+                models = MODELS.get(cfg["provider"], [])
+                if not rest:
+                    print("  models for " + cfg["provider"] + " " + dim("(current: " + cfg["model"] + ")") + ":")
+                    for i, mm in enumerate(models):
+                        cur = orange(" ●") if mm == cfg["model"] else dim("  ○")
+                        print("    %s %d. %s" % (cur, i + 1, mm))
+                    print(dim("  pick a number: /model 2   ·   or any id: /model <model-name>"))
+                elif rest.isdigit() and models:
+                    idx = int(rest) - 1
+                    if 0 <= idx < len(models):
+                        cfg["model"] = models[idx]; print(dim("  model -> " + cfg["model"]))
+                    else:
+                        print(red("  pick 1-%d, or type a model name" % len(models)))
+                else:
+                    cfg["model"] = rest; print(dim("  model -> " + rest))
             elif name == "provider":
                 target = PROVIDER_ALIASES.get(rest.lower(), rest.lower())
                 if not rest:
