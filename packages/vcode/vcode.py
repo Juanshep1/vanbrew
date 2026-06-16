@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re
 import urllib.request, urllib.error
 
-VERSION = "0.9"
+VERSION = "1.0"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -27,6 +27,32 @@ def green(s):  return _c(s, GREEN)
 def red(s):    return _c(s, RED)
 def blue(s):   return _c(s, BLUE)
 def bold(s):   return _c(s, BOLD)
+
+# ----------------------------------------------------- the VANTA wordmark ----
+# ANSI Shadow block letters, swept by a horizontal "vantablack dusk" gradient.
+VANTA_ART = [
+    "██╗   ██╗ █████╗ ███╗   ██╗████████╗ █████╗ ",
+    "██║   ██║██╔══██╗████╗  ██║╚══██╔══╝██╔══██╗",
+    "██║   ██║███████║██╔██╗ ██║   ██║   ███████║",
+    "╚██╗ ██╔╝██╔══██║██║╚██╗██║   ██║   ██╔══██║",
+    " ╚████╔╝ ██║  ██║██║ ╚████║   ██║   ██║  ██║",
+    "  ╚═══╝  ╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝",
+]
+GRAD_STOPS = [(99, 102, 241), (168, 85, 247), (217, 70, 160), (240, 118, 92), (245, 176, 86)]
+def _lerp(a, b, t): return tuple(int(a[k] + (b[k] - a[k]) * t) for k in range(3))
+def _grad_at(t):
+    if t <= 0: return GRAD_STOPS[0]
+    if t >= 1: return GRAD_STOPS[-1]
+    seg = t * (len(GRAD_STOPS) - 1); i = int(seg); return _lerp(GRAD_STOPS[i], GRAD_STOPS[i + 1], seg - i)
+def grad_line(line):
+    if not COLOR: return line
+    n = max(1, len(line) - 1); out = []; last = None
+    for i, ch in enumerate(line):
+        if ch == " ": out.append(ch); last = None; continue
+        code = "\033[38;2;%d;%d;%dm" % _grad_at(i / float(n))
+        if code != last: out.append(code); last = code
+        out.append(ch)
+    out.append("\033[0m"); return "".join(out)
 
 def term_width():
     try: return min(shutil.get_terminal_size().columns, 90)
@@ -390,18 +416,17 @@ def box(lines, width=None):
     print(orange(bot))
 
 def banner(cfg):
-    w = term_width()
+    w = max(len(l) for l in VANTA_ART)
     print()
-    box([
-        orange("✻ ") + bold("Welcome to Vanta Code"),
-        "",
-        dim("  the coding agent that speaks Vanta"),
-        "",
-        grey("  " + cfg["provider"] + " · " + cfg["model"]),
-        grey("  " + os.getcwd()),
-    ], w)
+    for line in VANTA_ART:
+        print("  " + grad_line(line))
+    print("  " + orange("c o d e") + dim("   ·   the terminal agent that speaks Vanta   ·   v" + VERSION))
+    print("  " + dim("─" * w))
+    dot = green("●") if cfg.get("key") else grey("○")
+    print("  " + dot + "  " + bold(cfg["provider"]) + dim("   ·   ") + cfg["model"])
+    print("  " + dim(os.getcwd()))
     print()
-    print(dim("  /help for commands · type a request · Ctrl-C to cancel, Ctrl-D to exit"))
+    print(dim("  /help for commands   ·   ask me to build something   ·   Ctrl-D to exit"))
     print()
 
 HELP = """  Commands:

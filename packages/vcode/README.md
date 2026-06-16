@@ -1,5 +1,18 @@
 # Vanta Code
 
+```
+██╗   ██╗ █████╗ ███╗   ██╗████████╗ █████╗ 
+██║   ██║██╔══██╗████╗  ██║╚══██╔══╝██╔══██╗
+██║   ██║███████║██╔██╗ ██║   ██║   ███████║
+╚██╗ ██╔╝██╔══██║██║╚██╗██║   ██║   ██╔══██║
+ ╚████╔╝ ██║  ██║██║ ╚████║   ██║   ██║  ██║
+  ╚═══╝  ╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝   c o d e
+```
+
+> On startup the wordmark is swept by a "vantablack dusk" gradient (indigo →
+> violet → magenta → coral → amber). The official Vanta CLI artwork.
+
+
 A terminal coding agent that **speaks Vanta** — styled to feel like Claude Code,
 but specialized in the [Vanta](https://github.com/Juanshep1/vanta) language. It
 reads, writes, runs, and debugs `.va` programs for you from a chat prompt.
