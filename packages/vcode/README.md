@@ -58,10 +58,13 @@ Set any (or several) and switch live with **`/provider`**. Optional:
 
 `/help` · `/clear` · `/provider [name]` · `/model [n|name]` · `/auto` · `/cwd <path>` · `/exit`
 
-- **`/provider`** — no argument lists the three providers and which have a key
-  set; `/provider ollama` (or `openrouter` / `anthropic`) switches on the spot.
-- **`/model`** — a picker: no argument lists models for the current provider,
-  numbered; `/model 3` selects the third, or `/model <id>` sets any model.
+- **`/provider`** — an **arrow-key menu** (↑/↓, Enter, Esc to cancel). Pick a
+  provider; if it has no key yet you're prompted to **paste your API key**, which
+  is saved to `~/.vanta-code/config.json` (hidden input, file locked to `600`),
+  then it flows straight into the model picker. `/provider ollama` still switches
+  directly. Your choice + key + model persist across sessions.
+- **`/model`** — an arrow-key menu of models for the current provider. `/model 3`
+  picks the third directly, or `/model <id>` sets any model.
 
 The command is **`vcode`** — run it in any terminal, or in a folder's terminal to
 work on that project (your current directory is the working directory).

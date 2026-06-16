@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile
 import urllib.request, urllib.error
 
-VERSION = "0.3"
+VERSION = "0.4"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -387,6 +387,106 @@ def load_config():
     if not prov: return None
     return make_cfg(prov, fc)
 
+def save_config(updates):
+    path = os.path.expanduser("~/.vanta-code/config.json")
+    d = file_config(); d.update(updates)
+    dirp = os.path.dirname(path)
+    if not os.path.isdir(dirp): os.makedirs(dirp)
+    with open(path, "w") as f: json.dump(d, f, indent=2)
+    try: os.chmod(path, 0o600)
+    except Exception: pass
+
+def _saved_key(provider):
+    fc = file_config()
+    return fc.get("key") if fc.get("provider") == provider else None
+
+# ------------------------------------------------------ arrow-key menu (TTY) --
+def select_menu(title, rows, idx=0):
+    """Up/Down to move, Enter to pick, Esc/q to cancel. Returns index or None.
+    Falls back to numbered input if stdin/stdout isn't a real terminal."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        print(title)
+        for i, r in enumerate(rows): print("  %d. %s" % (i + 1, r))
+        try: n = int(raw_input("  pick a number: ") if sys.version_info[0] < 3 else input("  pick a number: ")) - 1
+        except Exception: return None
+        return n if 0 <= n < len(rows) else None
+    try:
+        import termios, tty, select as _sel
+    except Exception:
+        print(title)
+        for i, r in enumerate(rows): print("  %d. %s" % (i + 1, r))
+        try: n = int(input("  pick a number: ")) - 1
+        except Exception: return None
+        return n if 0 <= n < len(rows) else None
+    fd = sys.stdin.fileno(); old = termios.tcgetattr(fd)
+    print(title)
+    def draw():
+        for i, r in enumerate(rows):
+            ptr = orange("❯ ") if i == idx else "  "
+            sys.stdout.write("\r\033[K" + ptr + (bold(r) if i == idx else dim(r)) + "\n")
+        sys.stdout.flush()
+    draw()
+    try:
+        tty.setcbreak(fd)
+        while True:
+            ch = sys.stdin.read(1)
+            if ch == "\x1b":
+                r, _, _ = _sel.select([fd], [], [], 0.06)
+                if r:
+                    seq = sys.stdin.read(2)
+                    if seq == "[A": idx = (idx - 1) % len(rows)
+                    elif seq == "[B": idx = (idx + 1) % len(rows)
+                else:
+                    return None
+            elif ch in ("\r", "\n"): return idx
+            elif ch == "k": idx = (idx - 1) % len(rows)
+            elif ch == "j": idx = (idx + 1) % len(rows)
+            elif ch in ("\x03", "q"): return None
+            sys.stdout.write("\033[%dA" % len(rows)); draw()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+def do_provider_menu(cfg):
+    keys = list(PROVIDERS.keys())
+    rows = []
+    for pk in keys:
+        pv = PROVIDERS[pk]
+        has = green("● key set") if (os.environ.get(pv["env"]) or _saved_key(pk)) else grey("○ no key yet")
+        rows.append("%-11s %-20s %s" % (pk, pv["label"], has))
+    idx = keys.index(cfg["provider"]) if cfg.get("provider") in keys else 0
+    sel = select_menu(orange("Choose a provider") + dim("   ↑/↓ then Enter · Esc to cancel"), rows, idx)
+    if sel is None:
+        print(dim("  (cancelled)")); return cfg
+    target = keys[sel]; pv = PROVIDERS[target]
+    if not (os.environ.get(pv["env"]) or _saved_key(target)):
+        import getpass
+        print(dim("  paste your %s and press Enter (input hidden), blank to cancel:" % pv["env"]))
+        try: key = getpass.getpass("  " + orange("key❯ "))
+        except Exception: key = ""
+        if not key.strip():
+            print(dim("  (no key entered)")); return cfg
+        save_config({"provider": target, "key": key.strip(), "model": pv["model"]})
+        print(green("  ✓ saved your %s to ~/.vanta-code/config.json (chmod 600)") % target)
+    else:
+        save_config({"provider": target})
+    nc = make_cfg(target, file_config(), use_env_model=False)
+    if not nc:
+        print(red("  could not load %s" % target)); return cfg
+    print(dim("  provider → " + nc["provider"] + " · " + nc["model"]))
+    return do_model_menu(nc)
+
+def do_model_menu(cfg):
+    models = MODELS.get(cfg["provider"], [])
+    if not models:
+        print(dim("  no preset models for " + cfg["provider"] + " — set one with /model <id>")); return cfg
+    idx = models.index(cfg["model"]) if cfg["model"] in models else 0
+    sel = select_menu(orange("Choose a model") + dim("   (" + cfg["provider"] + ")  ↑/↓ then Enter"), models, idx)
+    if sel is None:
+        print(dim("  (kept " + cfg["model"] + ")")); return cfg
+    cfg["model"] = models[sel]; save_config({"provider": cfg["provider"], "model": cfg["model"]})
+    print(dim("  model → " + cfg["model"]))
+    return cfg
+
 def no_key_screen():
     print()
     box([orange("✻ ") + bold("Vanta Code") + dim("  needs an API key")], term_width())
@@ -435,37 +535,30 @@ def main():
             elif name == "model":
                 models = MODELS.get(cfg["provider"], [])
                 if not rest:
-                    print("  models for " + cfg["provider"] + " " + dim("(current: " + cfg["model"] + ")") + ":")
-                    for i, mm in enumerate(models):
-                        cur = orange(" ●") if mm == cfg["model"] else dim("  ○")
-                        print("    %s %d. %s" % (cur, i + 1, mm))
-                    print(dim("  pick a number: /model 2   ·   or any id: /model <model-name>"))
+                    cfg = do_model_menu(cfg)
                 elif rest.isdigit() and models:
                     idx = int(rest) - 1
                     if 0 <= idx < len(models):
-                        cfg["model"] = models[idx]; print(dim("  model -> " + cfg["model"]))
+                        cfg["model"] = models[idx]; save_config({"provider": cfg["provider"], "model": cfg["model"]})
+                        print(dim("  model -> " + cfg["model"]))
                     else:
                         print(red("  pick 1-%d, or type a model name" % len(models)))
                 else:
-                    cfg["model"] = rest; print(dim("  model -> " + rest))
+                    cfg["model"] = rest; save_config({"provider": cfg["provider"], "model": rest}); print(dim("  model -> " + rest))
             elif name == "provider":
-                target = PROVIDER_ALIASES.get(rest.lower(), rest.lower())
                 if not rest:
-                    print("  providers " + dim("(current: " + cfg["provider"] + ")") + ":")
-                    for pk, pv in PROVIDERS.items():
-                        mark = orange("●") if pk == cfg["provider"] else dim("○")
-                        has = green("key set") if os.environ.get(pv["env"]) else dim("set " + pv["env"])
-                        print("    %s %-11s %s  %s" % (mark, pk, dim(pv["label"]), has))
-                    print(dim("  switch: /provider ollama   ·   /provider openrouter   ·   /provider anthropic"))
-                elif target not in PROVIDERS:
-                    print(red("  unknown provider '%s'. options: %s" % (rest, ", ".join(PROVIDERS))))
+                    cfg = do_provider_menu(cfg)
                 else:
-                    nc = make_cfg(target, use_env_model=False)
-                    if not nc:
-                        print(red("  no key for %s — set %s in your environment" % (target, PROVIDERS[target]["env"])))
+                    target = PROVIDER_ALIASES.get(rest.lower(), rest.lower())
+                    if target not in PROVIDERS:
+                        print(red("  unknown provider '%s'. options: %s" % (rest, ", ".join(PROVIDERS))))
                     else:
-                        cfg = nc
-                        print(dim("  provider -> " + cfg["provider"] + " · " + cfg["model"] + "   (/model to change the model)"))
+                        nc = make_cfg(target, file_config(), use_env_model=False)
+                        if not nc:
+                            print(red("  no key for %s — set %s, or run /provider to paste one" % (target, PROVIDERS[target]["env"])))
+                        else:
+                            cfg = nc; save_config({"provider": target})
+                            print(dim("  provider -> " + cfg["provider"] + " · " + cfg["model"]))
             elif name == "cwd":
                 if rest:
                     try: os.chdir(os.path.expanduser(rest)); print(dim("  cwd -> " + os.getcwd()))
