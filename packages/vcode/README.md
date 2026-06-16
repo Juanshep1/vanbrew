@@ -84,6 +84,5 @@ for their console output.)
 
 It's a clean, line-based REPL styled to look like Claude Code — same banner,
 tool rendering, spinner and flow — not a full raw-mode TUI (no in-box live
-editing or syntax-highlighted input). It runs Vanta programs to verify them, but
-won't `run_vanta` a `serve()` web app (those run forever) — it'll tell you to
-launch that yourself with `vanta <file>` and open it in Chrome.
+editing or syntax-highlighted input). It runs Vanta programs to verify them and
+launches visual/web projects in a movable window via `run_app`.
