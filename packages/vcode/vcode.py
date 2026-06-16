@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "1.5"
+VERSION = "1.6"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -730,6 +730,7 @@ HELP = """  Commands:
     /init            scan the project and write a VANTA.md (auto-loaded next time)
     /themes          pick a color theme (ember, synthwave, matrix, ice, gold, mono)
     /provider [name] list providers, or switch: anthropic | openrouter | ollama
+    /key             paste/replace the API key for the current provider
     /model [n|name]  list models and pick one (/model 2), or set any id
     /auto            toggle auto-approve for writes & shell (currently: %s)
     /cwd <path>      change working directory
@@ -978,6 +979,43 @@ def do_theme_menu(cfg):
     set_theme(names[sel]); save_config({"theme": names[sel]})
     print(); banner(cfg)   # re-show the banner so you see the new colors instantly
 
+def _provider_url(p):
+    return {"anthropic": "console.anthropic.com/settings/keys",
+            "openrouter": "openrouter.ai/keys",
+            "ollama": "ollama.com/settings/keys"}.get(p, "")
+
+def first_run_setup():
+    """No key anywhere -> walk the user through picking a provider and pasting a
+    key, right here in the CLI. Returns a cfg or None if they skip."""
+    print()
+    for line in VANTA_ART: print("  " + grad_line(line))
+    print("  " + orange("c o d e") + dim("   ·   first-time setup"))
+    print()
+    print("  vcode runs on " + bold("your own AI key") + " — pick a provider and paste a key.")
+    print()
+    names = list(PROVIDERS)
+    rows = []
+    for pk in names:
+        pv = PROVIDERS[pk]
+        has = green("● key found") if (os.environ.get(pv["env"]) or _saved_key(pk)) else grey("○ needs a key")
+        rows.append("%-11s %-22s %s" % (pk, pv["label"], has))
+    sel = select_menu(orange("Choose your AI provider") + dim("   ↑/↓ then Enter · Esc to skip"), rows, 0)
+    if sel is None: return None
+    target = names[sel]; pv = PROVIDERS[target]
+    if not (os.environ.get(pv["env"]) or _saved_key(target)):
+        import getpass
+        print(dim("  get a key at: ") + orange(_provider_url(target)))
+        print(dim("  paste your %s and press Enter (input stays hidden):" % pv["env"]))
+        try: key = getpass.getpass("  " + orange("key❯ "))
+        except Exception: key = ""
+        if not key.strip():
+            print(dim("  no key entered.")); return None
+        save_config({"provider": target, "key": key.strip(), "model": pv["model"]})
+        print(green("  ✓ saved to ~/.vanta-code/config.json — change anytime with /provider or /key"))
+    else:
+        save_config({"provider": target})
+    return make_cfg(target, file_config())
+
 def do_provider_menu(cfg):
     keys = list(PROVIDERS.keys())
     rows = []
@@ -1046,6 +1084,8 @@ def main():
         return
 
     cfg = load_config()
+    if not cfg and sys.stdin.isatty() and sys.stdout.isatty():
+        cfg = first_run_setup()                       # add a key right here in the CLI
     if not cfg:
         no_key_screen(); return
     set_theme(file_config().get("theme", "ember"))   # restore the saved theme
@@ -1117,6 +1157,15 @@ def main():
                 s = load_session()
                 if s: history[:] = s; print(dim("  resumed %d messages from your last session." % len(s)))
                 else: print(dim("  no saved session found."))
+            elif name == "key":
+                import getpass
+                pv = PROVIDERS[cfg["provider"]]
+                try: k = getpass.getpass("  " + orange("paste %s ❯ " % pv["env"]))
+                except Exception: k = ""
+                if k.strip():
+                    save_config({"provider": cfg["provider"], "key": k.strip()}); cfg["key"] = k.strip()
+                    print(green("  ✓ key saved for " + cfg["provider"] + "."))
+                else: print(dim("  (cancelled)"))
             elif name == "auto": AUTO["on"] = not AUTO["on"]; print(dim("  auto-approve %s." % ("on" if AUTO["on"] else "off")))
             elif name in ("themes", "theme"): do_theme_menu(cfg)
             elif name == "model":

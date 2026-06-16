@@ -19,9 +19,13 @@ reads, writes, runs, and debugs `.va` programs for you from a chat prompt.
 
 ```sh
 vanbrew install vcode
-export OPENROUTER_API_KEY="sk-or-..."    # or ANTHROPIC_API_KEY / OLLAMA_API_KEY
-vcode                                    # run it in any folder; cwd is your project
+vcode                                    # first run prompts you to add an API key
 ```
+
+On first launch vcode walks you through picking a provider and pasting a key
+(saved to `~/.vanta-code/config.json`) — no `export` needed. Change it later with
+`/provider` or `/key`. You can still pre-set `ANTHROPIC_API_KEY` /
+`OPENROUTER_API_KEY` / `OLLAMA_API_KEY` if you prefer.
 
 ```
 ╭──────────────────────────────────────────╮
