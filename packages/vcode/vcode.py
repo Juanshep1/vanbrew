@@ -3,10 +3,10 @@
 # styled to look like Claude Code. Uses YOUR OWN API key (Anthropic or
 # OpenRouter) from the environment. Single file, standard library only.
 from __future__ import print_function
-import os, sys, json, time, threading, subprocess, shutil, tempfile
+import os, sys, json, time, threading, subprocess, shutil, tempfile, re
 import urllib.request, urllib.error
 
-VERSION = "0.6"
+VERSION = "0.7"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -72,8 +72,10 @@ SYSTEM = """You are Vanta Code, a focused terminal coding agent that specializes
 - Every block (`if`, `for each`, `while`, `to`) closes with `end`. There are no curly-brace code blocks and no semicolons. `times` is reserved - don't use it as a variable.
 
 # How to work
-- When asked to build something, WRITE the .va file with write_file, then RUN it with run_vanta to confirm it works, and fix errors you see.
-- For a web app, write it, mention it serves on its port, and tell the user to run `vanta <file>` and open it in Chrome (servers block, so don't run_vanta a serve() program - it will time out; that's expected).
+- When asked to build something, WRITE the .va file with write_file, then verify it: a plain script -> run_vanta (reads its console output); a visual/web app -> run_app.
+- **To run / open / launch / show / "pop up" a project, ALWAYS use the run_app tool** - it starts the program and makes its window appear (visual apps open in a movable, draggable app-window; serve() apps launch and open at their port). For example, "run the tip calculator" -> run_app on the tip-calculator .va. Don't just tell the user to run it themselves; actually launch it with run_app.
+- Common files already on the user's machine: ~/tipjar.va is the draggable tip calculator. If the user names a known project, find its .va (try list_files in ~ and the current dir) and run_app it.
+- run_vanta is only for the text output of non-visual scripts; never run_vanta a serve() program (it never returns).
 - Keep answers tight. Show the user what you changed and the result."""
 
 # ------------------------------------------------------------------- tools ---
@@ -84,7 +86,9 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
     {"name": "list_files", "description": "List files in a directory (defaults to the current directory).",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}}},
-    {"name": "run_vanta", "description": "Run a Vanta .va file with the vanta CLI and return its output. Do NOT use on programs that call serve() - they run forever.",
+    {"name": "run_vanta", "description": "Run a Vanta .va file and return its TEXT/console output. Use only for non-visual scripts. Do NOT use on serve() web apps (they run forever) or visual apps (use run_app instead).",
+     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+    {"name": "run_app", "description": "Run a Vanta PROJECT and pop up its window. Use this whenever the user wants to run / open / launch / show / see a Vanta app (web apps, the tip calculator, any visual program). Web pages open in a movable, draggable app-window; serve() apps are launched and opened at their port. This is the right tool for 'run the tip calculator'.",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
     {"name": "bash", "description": "Run a shell command and return stdout/stderr.",
      "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
@@ -153,14 +157,52 @@ def tool_bash(a):
     except subprocess.TimeoutExpired:
         return "(timed out after 60s)", "timeout"
 
+def find_chrome():
+    for p in ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+              shutil.which("google-chrome"), shutil.which("chromium"), shutil.which("chrome")]:
+        if p and os.path.exists(p): return p
+    return None
+
+def tool_run_app(a):
+    path = os.path.expanduser(a["path"])
+    if not os.path.exists(path): return "no such file: " + path, "missing"
+    v = find_vanta()
+    if not v: return "vanta CLI not found — run: vanbrew install vanta", "no vanta"
+    try: src = open(path).read()
+    except Exception as e: return "could not read %s: %s" % (path, e), "error"
+    chrome = find_chrome()
+    if "serve(" in src:   # a web server: launch it, open its port in a movable window
+        m = (re.search(r"serve\(\s*(\d{2,5})", src) or re.search(r"PORT\s+be\s+(\d{2,5})", src)
+             or re.search(r"\bbe\s+(\d{4,5})\b", src))
+        port = m.group(1) if m else "8080"
+        subprocess.Popen([v, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        url = "http://localhost:%s/" % port
+        time.sleep(1.6)
+        if chrome:
+            subprocess.Popen([chrome, "--app=" + url, "--window-size=980,720"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return "Launched %s — serving %s in a movable window." % (os.path.basename(path), url), "window " + url
+        return "Launched %s — serving %s (open it in Chrome)." % (os.path.basename(path), url), url
+    # otherwise it writes a page and opens it: force a movable chromeless app-window
+    env = dict(os.environ)
+    if chrome: env["BROWSER"] = '"%s" --app=%%s' % chrome
+    try:
+        r = subprocess.run([v, path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=25, env=env)
+        out = r.stdout.decode("utf-8", "replace")
+        return (out or "(ran — its window should pop up)"), "window opened"
+    except subprocess.TimeoutExpired:
+        return "(still running after 25s — if it serves, it's up; open it in Chrome)", "running"
+
 DISPATCH = {"read_file": tool_read_file, "write_file": tool_write_file,
-            "list_files": tool_list_files, "run_vanta": tool_run_vanta, "bash": tool_bash}
+            "list_files": tool_list_files, "run_vanta": tool_run_vanta,
+            "run_app": tool_run_app, "bash": tool_bash}
 
 def tool_label(name, a):
     if name == "read_file":  return "Read(%s)" % a.get("path", "")
     if name == "write_file": return "Write(%s)" % a.get("path", "")
     if name == "list_files": return "List(%s)" % a.get("path", ".")
     if name == "run_vanta":  return "Run(%s)" % a.get("path", "")
+    if name == "run_app":    return "Open app(%s)" % a.get("path", "")
     if name == "bash":       return "Bash(%s)" % a.get("command", "")[:50]
     return "%s(%s)" % (name, a)
 

@@ -72,6 +72,14 @@ Set any (or several) and switch live with **`/provider`**. Optional:
 The command is **`vcode`** — run it in any terminal, or in a folder's terminal to
 work on that project (your current directory is the working directory).
 
+## Running projects
+
+Tell it to **run / open / launch / show** a project and it actually launches it —
+the `run_app` tool pops the app up in a **movable, draggable window**. A web app
+or the tip calculator opens chromeless and movable; a `serve()` app is started
+and opened at its port. (Plain non-visual scripts still run through `run_vanta`
+for their console output.)
+
 ## Honest scope
 
 It's a clean, line-based REPL styled to look like Claude Code — same banner,
