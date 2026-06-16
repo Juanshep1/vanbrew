@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "1.3"
+VERSION = "1.4"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -120,7 +120,8 @@ SYSTEM = """You are Vanta Code, a focused terminal coding agent that specializes
 - Your main job is BUILDING FROM SCRATCH. When the user asks you to make / build / create / write / code an app or program, WRITE it yourself with write_file - produce complete, original, working Vanta code. Do NOT reuse, copy, or just run a file that already exists, and do NOT go hunting for an existing .va to run. "Make a tip calculator" means write brand-new .va code for one - never run ~/tipjar.va or anything pre-made unless the user EXPLICITLY says "run the existing X".
 - For a new project, MAKE A DEDICATED FOLDER for it (make_dir, e.g. ~/vanta/<name>/) and put the .va plus any assets inside, unless the user says where. Then launch it so the user sees it: a visual/web app -> run_app (pops a movable window); a plain script -> run_vanta (console output). Read any error, fix the .va, and re-run until it works.
 - Only use run_app/run_vanta on an EXISTING file when the user explicitly says "run/open <that file>". Otherwise you are creating, not fetching.
-- Keep answers tight: a sentence on what you built, then the result.
+- To CHANGE an existing file, use edit_file (replace exact 'old' text with 'new') — it is surgical and shows a clean diff. Use write_file only for brand-new files or full rewrites. Use search (grep contents) and glob (find files by name) to locate code before editing.
+- Keep answers tight: a sentence on what you built, then the result. You may use light markdown (**bold**, `code`, # headings, ```fenced``` blocks); it renders in the terminal.
 
 # Building a visual app in Vanta (write this from scratch)
 A Vanta GUI/web app builds an HTML page as a string, writes it to a file, and opens it. CRITICAL: in Vanta strings a single { } means interpolation, so write `{{` and `}}` for every literal brace in CSS/JS. Use single quotes for all HTML attributes so you never escape double quotes. Working skeleton (a draggable card) - adapt the UI and logic to whatever the user asked for:
@@ -144,12 +145,30 @@ Put real inputs/buttons in <div id='body'> and their logic in the <script> (use 
 
 PREFER this file pattern (write HTML -> open_url) for visual apps: it has NO port and never clashes with anything. Use serve() ONLY when you truly need a live backend, and then pick an UNCOMMON HIGH PORT like 8765 - NEVER 8080, 8090, or 8100 (the user already runs apps there, e.g. a conlang site on 8080; opening those shows the wrong app). If run_app says a port is busy, change to another free high port and run_app again."""
 
+_CTX = {"text": ""}   # project context (VANTA.md / AGENTS.md / CLAUDE.md), loaded at startup
+def load_project_context():
+    chunks = []
+    for nm in ("VANTA.md", "AGENTS.md", "CLAUDE.md"):
+        for base in (os.getcwd(), os.path.expanduser("~/.vanta-code")):
+            fp = os.path.join(base, nm)
+            if os.path.isfile(fp):
+                try: chunks.append("# Project context (%s)\n%s" % (nm, open(fp, "r", errors="replace").read()[:6000]))
+                except Exception: pass
+                break
+    return ("\n\n" + "\n\n".join(chunks)) if chunks else ""
+
 # ------------------------------------------------------------------- tools ---
 TOOLS = [
     {"name": "read_file", "description": "Read a UTF-8 text file and return its contents.",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
-    {"name": "write_file", "description": "Write (create or overwrite) a text file. Use for .va files and any code.",
+    {"name": "write_file", "description": "Write (create or overwrite) a whole text file. Use for new files or full rewrites.",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
+    {"name": "edit_file", "description": "Make a surgical edit to an existing file: replace the exact text 'old' with 'new' (old must appear exactly once). Prefer this over write_file for small changes.",
+     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old": {"type": "string"}, "new": {"type": "string"}}, "required": ["path", "old", "new"]}},
+    {"name": "search", "description": "Search file contents for a regex/text pattern (like grep). Returns file:line:match.",
+     "input_schema": {"type": "object", "properties": {"pattern": {"type": "string"}, "path": {"type": "string"}}, "required": ["pattern"]}},
+    {"name": "glob", "description": "Find files by name pattern (e.g. *.va) under a directory.",
+     "input_schema": {"type": "object", "properties": {"pattern": {"type": "string"}, "path": {"type": "string"}}, "required": ["pattern"]}},
     {"name": "list_files", "description": "List files in a directory (defaults to the current directory). Pass any absolute path to look anywhere on the computer.",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}}},
     {"name": "make_dir", "description": "Create a folder (and any parent folders) anywhere on the computer. Use absolute paths like ~/projects/myapp or /Users/.../foo.",
@@ -258,6 +277,66 @@ def tool_delete_path(a):
     else: return "nothing at " + p, "missing"
     return "Deleted %s" % p, "ok"
 
+def tool_edit_file(a):
+    p = os.path.expanduser(a["path"]); old = a.get("old", ""); new = a.get("new", "")
+    if not os.path.exists(p): return "no such file: " + p, "missing"
+    content = open(p).read()
+    if old == "" or old not in content:
+        return "could not find that exact text in %s — copy it verbatim including indentation" % p, "no match"
+    cnt = content.count(old)
+    if cnt > 1:
+        return "that text appears %d times in %s — include more surrounding lines so it is unique" % (cnt, p), "ambiguous"
+    updated = content.replace(old, new, 1)
+    with open(p, "w") as f: f.write(updated)
+    print_diff(content, updated)
+    return ("Edited %s" % p, None)
+
+def _py_grep(pat, root):
+    try: rx = re.compile(pat)
+    except Exception: rx = re.compile(re.escape(pat))
+    hits = []
+    for dp, dn, fn in os.walk(root):
+        dn[:] = [d for d in dn if d not in (".git", "node_modules", "__pycache__", ".vanbrew")]
+        for f in fn:
+            fp = os.path.join(dp, f)
+            try:
+                for i, ln in enumerate(open(fp, "r", errors="replace"), 1):
+                    if rx.search(ln):
+                        hits.append("%s:%d:%s" % (fp, i, ln.rstrip()[:200]))
+                        if len(hits) >= 200: return hits
+            except Exception:
+                continue
+    return hits
+
+def tool_search(a):
+    pat = a["pattern"]; root = os.path.expanduser(a.get("path", "."))
+    rg = shutil.which("rg")
+    if rg:
+        try:
+            r = subprocess.run([rg, "-n", "--no-heading", "-S", "-m", "200", pat, root],
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=20)
+            lines = r.stdout.decode("utf-8", "replace").splitlines()
+        except Exception:
+            lines = _py_grep(pat, root)
+    else:
+        lines = _py_grep(pat, root)
+    if not lines: return "no matches for %r" % pat, "0 matches"
+    body = "\n".join(lines[:80])
+    if len(lines) > 80: body += "\n… %d more matches" % (len(lines) - 80)
+    return body, "%d matches" % len(lines)
+
+def tool_glob(a):
+    import fnmatch
+    pat = a["pattern"]; root = os.path.expanduser(a.get("path", "."))
+    out = []
+    for dp, dn, fn in os.walk(root):
+        dn[:] = [d for d in dn if d not in (".git", "node_modules", "__pycache__", ".vanbrew")]
+        for f in fn:
+            if fnmatch.fnmatch(f, pat):
+                out.append(os.path.join(dp, f))
+        if len(out) >= 300: break
+    return ("\n".join(out) if out else "no files match %r" % pat), "%d files" % len(out)
+
 def tool_list_files(a):
     p = os.path.expanduser(a.get("path", "."))
     items = sorted(os.listdir(p))
@@ -343,6 +422,7 @@ def tool_run_app(a):
         return "(still running after 25s — if it serves, it's up; open it in Chrome)", "running"
 
 DISPATCH = {"read_file": tool_read_file, "write_file": tool_write_file,
+            "edit_file": tool_edit_file, "search": tool_search, "glob": tool_glob,
             "list_files": tool_list_files, "make_dir": tool_make_dir,
             "move_path": tool_move_path, "delete_path": tool_delete_path,
             "run_vanta": tool_run_vanta, "run_app": tool_run_app, "bash": tool_bash}
@@ -351,6 +431,9 @@ def tool_label(name, a):
     if name == "read_file":  return "Read(%s)" % a.get("path", "")
     if name == "write_file":
         return ("Update(%s)" if os.path.exists(os.path.expanduser(a.get("path", ""))) else "Write(%s)") % a.get("path", "")
+    if name == "edit_file":  return "Edit(%s)" % a.get("path", "")
+    if name == "search":     return "Search(%s)" % a.get("pattern", "")
+    if name == "glob":       return "Glob(%s)" % a.get("pattern", "")
     if name == "list_files": return "List(%s)" % a.get("path", ".")
     if name == "make_dir":   return "Mkdir(%s)" % a.get("path", "")
     if name == "move_path":  return "Move(%s -> %s)" % (a.get("from", ""), a.get("to", ""))
@@ -409,7 +492,7 @@ def to_openai_msgs(history):
 def call_llm(cfg, history):
     """Return a normalized assistant message: {content:[blocks], stop:'tool'|'end'}."""
     if cfg["kind"] == "anthropic":
-        payload = {"model": cfg["model"], "max_tokens": 4096, "system": SYSTEM,
+        payload = {"model": cfg["model"], "max_tokens": 4096, "system": SYSTEM + _CTX["text"],
                    "messages": history, "tools": TOOLS}
         headers = {"x-api-key": cfg["key"], "anthropic-version": "2023-06-01",
                    "content-type": "application/json"}
@@ -420,7 +503,7 @@ def call_llm(cfg, history):
     else:  # openai-compatible (openrouter)
         oai_tools = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
                       "parameters": t["input_schema"]}} for t in TOOLS]
-        msgs = [{"role": "system", "content": SYSTEM}] + to_openai_msgs(history)
+        msgs = [{"role": "system", "content": SYSTEM + _CTX["text"]}] + to_openai_msgs(history)
         payload = {"model": cfg["model"], "max_tokens": 4096, "messages": msgs,
                    "tools": oai_tools, "tool_choice": "auto"}
         headers = {"Authorization": "Bearer " + cfg["key"], "content-type": "application/json",
@@ -450,12 +533,30 @@ def wrap(text, width):
         out.append(line)
     return "\n".join(out)
 
+def _md_inline(s):
+    if not COLOR: return s
+    s = re.sub(r"`([^`]+)`", lambda m: orange(m.group(1)), s)        # `code`
+    s = re.sub(r"\*\*([^*]+)\*\*", lambda m: bold(m.group(1)), s)     # **bold**
+    return s
+
 def print_assistant(text):
-    w = term_width() - 2
-    body = wrap(text.strip(), w)
+    rendered = []
+    fence = False
+    for raw in text.strip().split("\n"):
+        st = raw.strip()
+        if st.startswith("```"):
+            fence = not fence
+            rendered.append(dim("  " + "┄" * 24)); continue
+        if fence:
+            rendered.append(grey("  │ " + raw)); continue
+        h = re.match(r"^(#{1,6})\s+(.*)", raw)
+        if h: rendered.append(bold(orange(h.group(2)))); continue
+        b = re.match(r"^(\s*)[-*]\s+(.*)", raw)
+        if b: rendered.append(b.group(1) + orange("•") + " " + _md_inline(b.group(2))); continue
+        rendered.append(_md_inline(raw))
     first = True
-    for ln in body.split("\n"):
-        if first:
+    for ln in rendered:
+        if first and ln.strip():
             print(orange("⏺ ") + ln); first = False
         else:
             print("  " + ln)
@@ -552,6 +653,7 @@ HELP = """  Commands:
     /help            show this help
     /clear           start a fresh conversation
     /compact         summarize the conversation now (also happens automatically)
+    /init            scan the project and write a VANTA.md (auto-loaded next time)
     /themes          pick a color theme (ember, synthwave, matrix, ice, gold, mono)
     /provider [name] list providers, or switch: anthropic | openrouter | ollama
     /model [n|name]  list models and pick one (/model 2), or set any id
@@ -559,22 +661,39 @@ HELP = """  Commands:
     /cwd <path>      change working directory
     /exit, /quit     leave
 
+  Shortcuts:
+    !<command>       run a shell command directly (e.g. !ls, !git status)
+    @path/to/file    inline a file's contents into your message
+    ↑ / ↓            recall previous prompts (history is saved)
+
   Just type what you want, e.g.:
     "write a fizzbuzz in vanta and run it"
     "make a web app that serves a todo list on port 8123"
     "read snake.va and explain what it does"
 """
 
+def _rl_prompt():
+    if not COLOR: return "› "
+    # \001..\002 wrap non-printing bytes so readline counts width correctly
+    return "\001\033[%sm\002│ › \001\033[0m\002" % _code(THEME["accent"])
+
 def prompt_input():
     w = term_width()
     print(orange("╭" + "─" * (w - 2) + "╮"))
-    sys.stdout.write(orange("│ ") + orange("› "))
-    sys.stdout.flush()
-    line = sys.stdin.readline()
-    if line == "":  # EOF
-        raise EOFError
+    line = input(_rl_prompt())            # readline gives up-arrow history + line editing
     print(orange("╰" + "─" * (w - 2) + "╯"))
-    return line.rstrip("\n")
+    return line
+
+def expand_mentions(text):
+    # @path/to/file -> inlines the file's contents (like Claude Code's @ mentions)
+    def rep(m):
+        path = m.group(1); fp = os.path.expanduser(path)
+        if os.path.isfile(fp):
+            try: body = open(fp, "r", errors="replace").read()[:20000]
+            except Exception: return m.group(0)
+            return "%s\n\n--- %s ---\n%s\n--- end %s ---" % (path, path, body, path)
+        return m.group(0)
+    return re.sub(r"@([^\s]+)", rep, text)
 
 # ----------------------------------------------------------------- config ----
 PROVIDERS = {
@@ -851,6 +970,21 @@ def main():
     if not cfg:
         no_key_screen(); return
     set_theme(file_config().get("theme", "ember"))   # restore the saved theme
+    _CTX["text"] = load_project_context()             # auto-load VANTA.md/AGENTS.md/CLAUDE.md
+    try:
+        import readline, atexit
+        _hist = os.path.expanduser("~/.vanta-code/history")
+        try: os.makedirs(os.path.dirname(_hist), exist_ok=True)
+        except Exception: pass
+        try: readline.read_history_file(_hist)
+        except Exception: pass
+        readline.set_history_length(1000)
+        def _savehist():
+            try: readline.write_history_file(_hist)
+            except Exception: pass
+        atexit.register(_savehist)
+    except Exception:
+        pass
 
     banner(cfg)
     history = []
@@ -861,6 +995,17 @@ def main():
             print("\n" + dim("  bye.")); return
         if not line:
             continue
+        if line.startswith("!"):                       # run a shell command directly
+            cmd = line[1:].strip()
+            if cmd:
+                try:
+                    r = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
+                    o = r.stdout.decode("utf-8", "replace")
+                    print(o.rstrip() if o.strip() else dim("  (no output)"))
+                    history.append({"role": "user", "content": "I ran `%s`; output:\n%s" % (cmd, o[:4000])})
+                except Exception as e:
+                    print(red("  " + str(e)))
+            continue
         if line.startswith("/"):
             cmd = line[1:].split(" ", 1)
             name = cmd[0].lower(); rest = cmd[1].strip() if len(cmd) > 1 else ""
@@ -870,6 +1015,9 @@ def main():
             elif name == "compact":
                 if history: history[:] = compact_history(cfg, history)
                 else: print(dim("  nothing to compact yet."))
+            elif name == "init":
+                agent_turn(cfg, history, expand_mentions("Look around this project (use glob/list_files/read_file) and write a short VANTA.md in the current folder: what it is, how to run it, key files, and any Vanta conventions used. Then confirm you created it."))
+                _CTX["text"] = load_project_context()
             elif name == "auto": AUTO["on"] = not AUTO["on"]; print(dim("  auto-approve %s." % ("on" if AUTO["on"] else "off")))
             elif name in ("themes", "theme"): do_theme_menu(cfg)
             elif name == "model":
@@ -909,7 +1057,7 @@ def main():
             else: print(dim("  unknown command. /help for the list."))
             continue
         try:
-            agent_turn(cfg, history, line)
+            agent_turn(cfg, history, expand_mentions(line))
         except KeyboardInterrupt:
             print("\n" + dim("  (interrupted)"))
         print()
