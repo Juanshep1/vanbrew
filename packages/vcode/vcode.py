@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re
 import urllib.request, urllib.error
 
-VERSION = "1.0"
+VERSION = "1.1"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -122,7 +122,9 @@ write_file(dest, html)
 open_url("file://" + dest)
 say "opened"
 
-Put real inputs/buttons in <div id='body'> and their logic in the <script> (use `{{`/`}}` for braces). For a backend app instead, write serve(PORT, handler) returning HTML/JSON; run_app will launch it and open its port."""
+Put real inputs/buttons in <div id='body'> and their logic in the <script> (use `{{`/`}}` for braces).
+
+PREFER this file pattern (write HTML -> open_url) for visual apps: it has NO port and never clashes with anything. Use serve() ONLY when you truly need a live backend, and then pick an UNCOMMON HIGH PORT like 8765 - NEVER 8080, 8090, or 8100 (the user already runs apps there, e.g. a conlang site on 8080; opening those shows the wrong app). If run_app says a port is busy, change to another free high port and run_app again."""
 
 # ------------------------------------------------------------------- tools ---
 TOOLS = [
@@ -234,6 +236,17 @@ def find_chrome():
         if p and os.path.exists(p): return p
     return None
 
+def _child_port(pid):
+    # the TCP port THIS process is actually listening on (so we never open a
+    # port some OTHER app already owns, e.g. a conlang already on 8080)
+    try:
+        out = subprocess.run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", str(pid)],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=4).stdout.decode("utf-8", "replace")
+        m = re.search(r":(\d+)\s*\(LISTEN\)", out)
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
 def tool_run_app(a):
     path = os.path.expanduser(a["path"])
     if not os.path.exists(path): return "no such file: " + path, "missing"
@@ -242,13 +255,21 @@ def tool_run_app(a):
     try: src = open(path).read()
     except Exception as e: return "could not read %s: %s" % (path, e), "error"
     chrome = find_chrome()
-    if "serve(" in src:   # a web server: launch it, open its port in a movable window
-        m = (re.search(r"serve\(\s*(\d{2,5})", src) or re.search(r"PORT\s+be\s+(\d{2,5})", src)
-             or re.search(r"\bbe\s+(\d{4,5})\b", src))
-        port = m.group(1) if m else "8080"
-        subprocess.Popen([v, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if "serve(" in src:   # a web server: launch it, open ITS port in a movable window
+        proc = subprocess.Popen([v, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        port = None
+        for _ in range(14):                 # wait up to ~5s for it to bind
+            time.sleep(0.35)
+            port = _child_port(proc.pid)
+            if port: break
+            if proc.poll() is not None: break  # it exited (likely a port clash)
+        if not port:
+            m = re.search(r"serve\(\s*(\d{2,5})", src) or re.search(r"PORT\s+be\s+(\d{2,5})", src)
+            sp = m.group(1) if m else None
+            if sp and sp in ("8080", "8090", "8100"):
+                return ("%s did not start — port %s is already taken by another app (the user runs one there). Rewrite it to serve on a free high port like 8765, then run_app again." % (os.path.basename(path), sp)), "port busy"
+            return ("%s did not start a server (no listening port). Check it serves on a free port and try again." % os.path.basename(path)), "no port"
         url = "http://localhost:%s/" % port
-        time.sleep(1.6)
         if chrome:
             subprocess.Popen([chrome, "--app=" + url, "--window-size=980,720"],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -380,7 +401,46 @@ def print_assistant(text):
         else:
             print("  " + ln)
 
+COMPACT_AT = 60000   # auto-summarise the history once it grows past ~this many chars
+
+def history_size(history):
+    try: return sum(len(json.dumps(m.get("content", ""))) for m in history)
+    except Exception: return 0
+
+def _transcript(history):
+    lines = []
+    for m in history:
+        c = m.get("content")
+        if isinstance(c, str):
+            lines.append("%s: %s" % (m["role"], c)); continue
+        for b in (c or []):
+            t = b.get("type")
+            if t == "text": lines.append("%s: %s" % (m["role"], b.get("text", "")))
+            elif t == "tool_use": lines.append("assistant -> %s(%s)" % (b.get("name"), json.dumps(b.get("input", {}))[:200]))
+            elif t == "tool_result": lines.append("tool result: %s" % (str(b.get("content", ""))[:300]))
+    return "\n".join(lines)
+
+def compact_history(cfg, history):
+    if not history: return history
+    ask = [{"role": "user", "content":
+            "Summarize this coding session concisely for your own future reference. "
+            "Preserve: what the user is building, exact file paths you created/edited, key decisions, "
+            "the current state, and anything still unresolved. A few tight bullet points.\n\n"
+            "=== TRANSCRIPT ===\n" + _transcript(history)}]
+    sys.stdout.write("  " + dim("compacting the conversation to save context…")); sys.stdout.flush()
+    try:
+        resp = call_llm(cfg, ask)
+        text = "".join(b.get("text", "") for b in resp["content"] if b.get("type") == "text").strip()
+    except Exception:
+        sys.stdout.write("\r\033[K"); return history
+    sys.stdout.write("\r\033[K")
+    if not text: return history
+    print("  " + dim("↻ compacted earlier conversation to save context"))
+    return [{"role": "user", "content": "[Summary of our earlier conversation]\n" + text}]
+
 def agent_turn(cfg, history, user_text):
+    if history_size(history) > COMPACT_AT:        # auto-compact long sessions
+        history[:] = compact_history(cfg, history)
     history.append({"role": "user", "content": user_text})
     for _ in range(60):
         sp = Spinner(SPIN_WORDS[int(time.time()) % len(SPIN_WORDS)]).start()
@@ -432,6 +492,7 @@ def banner(cfg):
 HELP = """  Commands:
     /help            show this help
     /clear           start a fresh conversation
+    /compact         summarize the conversation now (also happens automatically)
     /provider [name] list providers, or switch: anthropic | openrouter | ollama
     /model [n|name]  list models and pick one (/model 2), or set any id
     /auto            toggle auto-approve for writes & shell (currently: %s)
@@ -710,6 +771,9 @@ def main():
             if name in ("exit", "quit"): print(dim("  bye.")); return
             elif name == "help": print(HELP % ("on" if AUTO["on"] else "off"))
             elif name == "clear": history = []; print(dim("  context cleared."))
+            elif name == "compact":
+                if history: history[:] = compact_history(cfg, history)
+                else: print(dim("  nothing to compact yet."))
             elif name == "auto": AUTO["on"] = not AUTO["on"]; print(dim("  auto-approve %s." % ("on" if AUTO["on"] else "off")))
             elif name == "model":
                 if not rest or rest.lower() == "refresh":
