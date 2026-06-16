@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile
 import urllib.request, urllib.error
 
-VERSION = "0.5"
+VERSION = "0.6"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -350,15 +350,63 @@ PROVIDERS = {
 }
 PROVIDER_ALIASES = {"ollama-cloud": "ollama", "ollamacloud": "ollama", "claude": "anthropic", "or": "openrouter"}
 
-# Suggested models per provider for the /model picker (you can also type any name).
+# Fallback model lists for the /model picker. When a key is set, /model fetches
+# the provider's LIVE list from /v1/models (so Ollama shows its full cloud
+# catalog); these are used only if that fetch fails or you're offline.
 MODELS = {
     "anthropic":  ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
     "openrouter": ["anthropic/claude-sonnet-4.5", "anthropic/claude-opus-4.1", "openai/gpt-4o",
                    "google/gemini-2.5-pro", "deepseek/deepseek-chat", "qwen/qwen3-coder",
                    "meta-llama/llama-3.3-70b-instruct"],
-    "ollama":     ["gpt-oss:120b", "gpt-oss:20b", "qwen3-coder:480b", "deepseek-v3.1:671b",
-                   "kimi-k2:1t", "glm-4.6"],
+    "ollama":     ["gpt-oss:120b", "gpt-oss:20b", "qwen3-coder:480b", "qwen3-coder-next",
+                   "deepseek-v3.1:671b", "deepseek-v3.2", "deepseek-v4-pro", "deepseek-v4-flash",
+                   "kimi-k2:1t", "kimi-k2-thinking", "kimi-k2.5", "kimi-k2.6", "kimi-k2.7-code",
+                   "glm-4.6", "glm-4.7", "glm-5", "glm-5.1", "minimax-m2", "minimax-m2.1",
+                   "minimax-m2.5", "minimax-m2.7", "minimax-m3", "qwen3-vl:235b", "qwen3.5:397b",
+                   "qwen3-next:80b", "mistral-large-3:675b", "devstral-2:123b", "devstral-small-2:24b",
+                   "nemotron-3-ultra", "nemotron-3-super", "nemotron-3-nano:30b",
+                   "gemma3:27b", "gemma3:12b", "gemma3:4b", "gemma4:31b", "cogito-2.1:671b",
+                   "ministral-3:14b", "ministral-3:8b", "ministral-3:3b", "gemini-3-flash-preview"],
 }
+
+_MODEL_CACHE = {}
+
+def fetch_models(cfg):
+    """Live model ids from the provider's /v1/models endpoint, or None."""
+    try:
+        if cfg["kind"] == "anthropic":
+            url = "https://api.anthropic.com/v1/models"
+            hdr = {"x-api-key": cfg["key"], "anthropic-version": "2023-06-01"}
+        else:
+            url = cfg["base"] + "/models"
+            hdr = {"Authorization": "Bearer " + cfg["key"]}
+        req = urllib.request.Request(url, headers=hdr)
+        with urllib.request.urlopen(req, timeout=15) as r:
+            j = json.loads(r.read().decode("utf-8", "replace"))
+        data = j.get("data") or j.get("models") or []
+        ids, seen = [], set()
+        for m in data:
+            mid = m.get("id") or m.get("name") or m.get("model")
+            if mid and mid not in seen:
+                seen.add(mid); ids.append(mid)
+        return ids or None
+    except Exception:
+        return None
+
+def provider_models(cfg, refresh=False):
+    prov = cfg["provider"]
+    if not refresh and prov in _MODEL_CACHE:
+        return _MODEL_CACHE[prov]
+    sys.stdout.write("  " + dim("fetching the live model list…")); sys.stdout.flush()
+    live = fetch_models(cfg)
+    sys.stdout.write("\r\033[K"); sys.stdout.flush()
+    # OpenRouter lists hundreds of models — too many to scroll, so keep curated.
+    if live and not (prov == "openrouter" and len(live) > 60):
+        models = live
+    else:
+        models = MODELS.get(prov, [])
+    _MODEL_CACHE[prov] = models
+    return models
 
 def file_config():
     p = os.path.expanduser("~/.vanta-code/config.json")
@@ -421,11 +469,25 @@ def select_menu(title, rows, idx=0):
     fd = sys.stdin.fileno()
     try: old = termios.tcgetattr(fd)
     except Exception: return _numbered_pick(title, rows)
+    n = len(rows)
+    try: height = shutil.get_terminal_size().lines
+    except Exception: height = 24
+    vis = max(4, min(n, height - 5))     # how many rows are visible at once
+    top = [0]
     print(title)
     def draw():
-        for i, r in enumerate(rows):
-            ptr = orange("❯ ") if i == idx else "  "
-            sys.stdout.write("\r\033[K" + ptr + (bold(r) if i == idx else dim(r)) + "\n")
+        if idx < top[0]: top[0] = idx
+        elif idx >= top[0] + vis: top[0] = idx - vis + 1
+        top[0] = max(0, min(top[0], max(0, n - vis)))
+        for r in range(vis):
+            mi = top[0] + r
+            if mi < n:
+                ptr = orange("❯ ") if mi == idx else "  "
+                sys.stdout.write("\r\033[K" + ptr + (bold(rows[mi]) if mi == idx else dim(rows[mi])) + "\n")
+            else:
+                sys.stdout.write("\r\033[K\n")
+        tail = ("  ·  %d-%d of %d" % (top[0] + 1, min(top[0] + vis, n), n)) if n > vis else ""
+        sys.stdout.write("\r\033[K" + dim("  %d/%d  ↑/↓ Enter · Esc%s" % (idx + 1, n, tail)) + "\n")
         sys.stdout.flush()
     draw()
     try:
@@ -437,13 +499,13 @@ def select_menu(title, rows, idx=0):
             if b in (b"\x03", b"q", b"\x1b"): return None   # Ctrl-C / q / bare Esc
             if b[:2] == b"\x1b[":
                 k = b[2:3]
-                if k == b"A": idx = (idx - 1) % len(rows)
-                elif k == b"B": idx = (idx + 1) % len(rows)
+                if k == b"A": idx = (idx - 1) % n
+                elif k == b"B": idx = (idx + 1) % n
                 else: continue
-            elif b == b"k": idx = (idx - 1) % len(rows)
-            elif b == b"j": idx = (idx + 1) % len(rows)
+            elif b == b"k": idx = (idx - 1) % n
+            elif b == b"j": idx = (idx + 1) % n
             else: continue
-            sys.stdout.write("\033[%dA" % len(rows)); draw()
+            sys.stdout.write("\033[%dA" % (vis + 1)); draw()
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
@@ -477,11 +539,11 @@ def do_provider_menu(cfg):
     return do_model_menu(nc)
 
 def do_model_menu(cfg):
-    models = MODELS.get(cfg["provider"], [])
+    models = provider_models(cfg)
     if not models:
-        print(dim("  no preset models for " + cfg["provider"] + " — set one with /model <id>")); return cfg
+        print(dim("  no models found for " + cfg["provider"] + " — set one with /model <id>")); return cfg
     idx = models.index(cfg["model"]) if cfg["model"] in models else 0
-    sel = select_menu(orange("Choose a model") + dim("   (" + cfg["provider"] + ")  ↑/↓ then Enter"), models, idx)
+    sel = select_menu(orange("Choose a model") + dim("   (" + cfg["provider"] + ", %d models)  ↑/↓ then Enter" % len(models)), models, idx)
     if sel is None:
         print(dim("  (kept " + cfg["model"] + ")")); return cfg
     cfg["model"] = models[sel]; save_config({"provider": cfg["provider"], "model": cfg["model"]})
@@ -534,18 +596,20 @@ def main():
             elif name == "clear": history = []; print(dim("  context cleared."))
             elif name == "auto": AUTO["on"] = not AUTO["on"]; print(dim("  auto-approve %s." % ("on" if AUTO["on"] else "off")))
             elif name == "model":
-                models = MODELS.get(cfg["provider"], [])
-                if not rest:
+                if not rest or rest.lower() == "refresh":
+                    if rest.lower() == "refresh": _MODEL_CACHE.pop(cfg["provider"], None)
                     cfg = do_model_menu(cfg)
-                elif rest.isdigit() and models:
-                    idx = int(rest) - 1
-                    if 0 <= idx < len(models):
-                        cfg["model"] = models[idx]; save_config({"provider": cfg["provider"], "model": cfg["model"]})
-                        print(dim("  model -> " + cfg["model"]))
-                    else:
-                        print(red("  pick 1-%d, or type a model name" % len(models)))
                 else:
-                    cfg["model"] = rest; save_config({"provider": cfg["provider"], "model": rest}); print(dim("  model -> " + rest))
+                    models = provider_models(cfg)
+                    if rest.isdigit() and models:
+                        idx = int(rest) - 1
+                        if 0 <= idx < len(models):
+                            cfg["model"] = models[idx]; save_config({"provider": cfg["provider"], "model": cfg["model"]})
+                            print(dim("  model -> " + cfg["model"]))
+                        else:
+                            print(red("  pick 1-%d, or type a model name" % len(models)))
+                    else:
+                        cfg["model"] = rest; save_config({"provider": cfg["provider"], "model": rest}); print(dim("  model -> " + rest))
             elif name == "provider":
                 if not rest:
                     cfg = do_provider_menu(cfg)

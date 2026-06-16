@@ -63,8 +63,11 @@ Set any (or several) and switch live with **`/provider`**. Optional:
   is saved to `~/.vanta-code/config.json` (hidden input, file locked to `600`),
   then it flows straight into the model picker. `/provider ollama` still switches
   directly. Your choice + key + model persist across sessions.
-- **`/model`** — an arrow-key menu of models for the current provider. `/model 3`
-  picks the third directly, or `/model <id>` sets any model.
+- **`/model`** — an arrow-key menu of models for the current provider, fetched
+  **live** from its `/v1/models` endpoint (so Ollama Cloud shows its whole
+  catalog — 40+ models — and the list scrolls). `/model 3` picks by number,
+  `/model <id>` sets any model, `/model refresh` re-pulls the list. Falls back to
+  a built-in list if offline.
 
 The command is **`vcode`** — run it in any terminal, or in a folder's terminal to
 work on that project (your current directory is the working directory).

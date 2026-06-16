@@ -158,8 +158,8 @@
     ]
   },
   "vcode": {
-    "version": "0.5",
-    "summary": "Vanta Code (vcode) - a Claude Code-style terminal coding agent that speaks Vanta; arrow-key /provider + /model pickers (paste & save your key), switch Anthropic/OpenRouter/Ollama Cloud",
+    "version": "0.6",
+    "summary": "Vanta Code (vcode) - a Claude Code-style terminal coding agent that speaks Vanta; arrow-key /provider + /model pickers with the LIVE model list (Ollama Cloud full catalog), paste & save your key",
     "deps": [
       "vanta"
     ],
