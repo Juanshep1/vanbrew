@@ -158,8 +158,8 @@
     ]
   },
   "vcode": {
-    "version": "0.8",
-    "summary": "Vanta Code (vcode) - a Claude Code-style terminal coding agent that speaks Vanta; runs projects in a movable window (run_app), live /model list, arrow-key /provider picker, bring your own key",
+    "version": "0.9",
+    "summary": "Vanta Code (vcode) - a Claude Code-style terminal coding agent that speaks Vanta; full filesystem access (make folders/move/delete, code anywhere), builds apps from scratch, runs them in a movable window",
     "deps": [
       "vanta"
     ],

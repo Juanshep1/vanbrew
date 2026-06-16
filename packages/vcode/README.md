@@ -33,10 +33,11 @@ vcode                                    # run it in any folder; cwd is your pro
 - **Knows Vanta cold** — its system prompt is a compact, accurate reference to
   the whole language (plain-English syntax, `serve`/`http_get`/filesystem
   builtins, the `{{ }}` brace rule, etc.), so the code it writes actually runs.
-- **Real tools** — `read_file`, `write_file`, `list_files`, `run_vanta` (runs a
-  `.va` file through the `vanta` CLI and reads the output), and `bash`. Writes
-  and shell commands ask for confirmation (`a` = always allow this session, or
-  `/auto`).
+- **Full computer access** — `read_file`, `write_file`, `list_files`, `make_dir`,
+  `move_path`, `delete_path`, `run_vanta`, `run_app`, and `bash`. It can create
+  folders and code Vanta **anywhere** on your machine (use absolute paths), not
+  just the current directory. Writing files is frictionless; deleting and shell
+  commands ask once to confirm (`a` = always allow this session, or `/auto`).
 - **Looks like Claude Code** — welcome box, `⏺` tool-call lines with `⎿`
   results, a thinking spinner, the bordered prompt, slash commands.
 

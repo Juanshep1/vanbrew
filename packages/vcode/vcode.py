@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re
 import urllib.request, urllib.error
 
-VERSION = "0.8"
+VERSION = "0.9"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -72,8 +72,9 @@ SYSTEM = """You are Vanta Code, a focused terminal coding agent that specializes
 - Every block (`if`, `for each`, `while`, `to`) closes with `end`. There are no curly-brace code blocks and no semicolons. `times` is reserved - don't use it as a variable.
 
 # How to work
+- You have FULL ACCESS to this computer. You can create folders ANYWHERE (make_dir), read/write/move/delete any file, and run any shell command (bash). You are NOT limited to the current directory - use absolute paths (e.g. ~/projects/foo/app.va, /Users/.../). Coding Vanta works in any location.
 - Your main job is BUILDING FROM SCRATCH. When the user asks you to make / build / create / write / code an app or program, WRITE it yourself with write_file - produce complete, original, working Vanta code. Do NOT reuse, copy, or just run a file that already exists, and do NOT go hunting for an existing .va to run. "Make a tip calculator" means write brand-new .va code for one - never run ~/tipjar.va or anything pre-made unless the user EXPLICITLY says "run the existing X".
-- Save the new program as a clearly named .va file in the current directory (e.g. ./calculator.va) unless told otherwise. Then launch it so the user sees it: a visual/web app -> run_app (pops a movable window); a plain script -> run_vanta (console output). Read any error, fix the .va, and re-run until it works.
+- For a new project, MAKE A DEDICATED FOLDER for it (make_dir, e.g. ~/vanta/<name>/) and put the .va plus any assets inside, unless the user says where. Then launch it so the user sees it: a visual/web app -> run_app (pops a movable window); a plain script -> run_vanta (console output). Read any error, fix the .va, and re-run until it works.
 - Only use run_app/run_vanta on an EXISTING file when the user explicitly says "run/open <that file>". Otherwise you are creating, not fetching.
 - Keep answers tight: a sentence on what you built, then the result.
 
@@ -103,8 +104,14 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
     {"name": "write_file", "description": "Write (create or overwrite) a text file. Use for .va files and any code.",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
-    {"name": "list_files", "description": "List files in a directory (defaults to the current directory).",
+    {"name": "list_files", "description": "List files in a directory (defaults to the current directory). Pass any absolute path to look anywhere on the computer.",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}}},
+    {"name": "make_dir", "description": "Create a folder (and any parent folders) anywhere on the computer. Use absolute paths like ~/projects/myapp or /Users/.../foo.",
+     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+    {"name": "move_path", "description": "Move or rename a file/folder.",
+     "input_schema": {"type": "object", "properties": {"from": {"type": "string"}, "to": {"type": "string"}}, "required": ["from", "to"]}},
+    {"name": "delete_path", "description": "Delete a file or folder (recursively). Asks the user to confirm.",
+     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
     {"name": "run_vanta", "description": "Run a Vanta .va file and return its TEXT/console output. Use only for non-visual scripts. Do NOT use on serve() web apps (they run forever) or visual apps (use run_app instead).",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
     {"name": "run_app", "description": "Run a Vanta PROJECT and pop up its window. Use this whenever the user wants to run / open / launch / show / see a Vanta app (web apps, the tip calculator, any visual program). Web pages open in a movable, draggable app-window; serve() apps are launched and opened at their port. This is the right tool for 'run the tip calculator'.",
@@ -139,13 +146,32 @@ def tool_read_file(a):
 
 def tool_write_file(a):
     p = os.path.expanduser(a["path"]); content = a.get("content", "")
-    print("  " + dim("write %s (%d lines)" % (p, content.count("\n") + 1)))
-    if not _confirm("write"):
-        return "User declined to write this file.", "declined"
     d = os.path.dirname(p)
     if d and not os.path.isdir(d): os.makedirs(d)
     with open(p, "w") as f: f.write(content)
     return "Wrote %s" % p, "%d lines" % (content.count("\n") + 1)
+
+def tool_make_dir(a):
+    p = os.path.expanduser(a["path"])
+    os.makedirs(p, exist_ok=True)
+    return "Created folder %s" % p, "ok"
+
+def tool_move_path(a):
+    src = os.path.expanduser(a["from"]); dst = os.path.expanduser(a["to"])
+    d = os.path.dirname(dst)
+    if d and not os.path.isdir(d): os.makedirs(d)
+    shutil.move(src, dst)
+    return "Moved %s -> %s" % (src, dst), "ok"
+
+def tool_delete_path(a):
+    p = os.path.expanduser(a["path"])
+    print("  " + dim("delete " + p))
+    if not _confirm("delete"):
+        return "User declined to delete this.", "declined"
+    if os.path.isdir(p): shutil.rmtree(p)
+    elif os.path.exists(p): os.remove(p)
+    else: return "nothing at " + p, "missing"
+    return "Deleted %s" % p, "ok"
 
 def tool_list_files(a):
     p = os.path.expanduser(a.get("path", "."))
@@ -213,13 +239,17 @@ def tool_run_app(a):
         return "(still running after 25s — if it serves, it's up; open it in Chrome)", "running"
 
 DISPATCH = {"read_file": tool_read_file, "write_file": tool_write_file,
-            "list_files": tool_list_files, "run_vanta": tool_run_vanta,
-            "run_app": tool_run_app, "bash": tool_bash}
+            "list_files": tool_list_files, "make_dir": tool_make_dir,
+            "move_path": tool_move_path, "delete_path": tool_delete_path,
+            "run_vanta": tool_run_vanta, "run_app": tool_run_app, "bash": tool_bash}
 
 def tool_label(name, a):
     if name == "read_file":  return "Read(%s)" % a.get("path", "")
     if name == "write_file": return "Write(%s)" % a.get("path", "")
     if name == "list_files": return "List(%s)" % a.get("path", ".")
+    if name == "make_dir":   return "Mkdir(%s)" % a.get("path", "")
+    if name == "move_path":  return "Move(%s -> %s)" % (a.get("from", ""), a.get("to", ""))
+    if name == "delete_path":return "Delete(%s)" % a.get("path", "")
     if name == "run_vanta":  return "Run(%s)" % a.get("path", "")
     if name == "run_app":    return "Open app(%s)" % a.get("path", "")
     if name == "bash":       return "Bash(%s)" % a.get("command", "")[:50]
