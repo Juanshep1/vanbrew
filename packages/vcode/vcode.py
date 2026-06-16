@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile
 import urllib.request, urllib.error
 
-VERSION = "0.4"
+VERSION = "0.5"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -401,24 +401,26 @@ def _saved_key(provider):
     return fc.get("key") if fc.get("provider") == provider else None
 
 # ------------------------------------------------------ arrow-key menu (TTY) --
+def _numbered_pick(title, rows):
+    print(title)
+    for i, r in enumerate(rows): print("  %d. %s" % (i + 1, r))
+    try: n = int(input("  pick a number: ")) - 1
+    except Exception: return None
+    return n if 0 <= n < len(rows) else None
+
 def select_menu(title, rows, idx=0):
-    """Up/Down to move, Enter to pick, Esc/q to cancel. Returns index or None.
-    Falls back to numbered input if stdin/stdout isn't a real terminal."""
+    """Up/Down (or j/k) to move, Enter to pick, Esc/q to cancel. Returns index
+    or None. Falls back to a numbered prompt when there's no real terminal.
+    Reads raw bytes with os.read so terminal escape sequences arrive intact."""
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        print(title)
-        for i, r in enumerate(rows): print("  %d. %s" % (i + 1, r))
-        try: n = int(raw_input("  pick a number: ") if sys.version_info[0] < 3 else input("  pick a number: ")) - 1
-        except Exception: return None
-        return n if 0 <= n < len(rows) else None
+        return _numbered_pick(title, rows)
     try:
-        import termios, tty, select as _sel
+        import termios, tty
     except Exception:
-        print(title)
-        for i, r in enumerate(rows): print("  %d. %s" % (i + 1, r))
-        try: n = int(input("  pick a number: ")) - 1
-        except Exception: return None
-        return n if 0 <= n < len(rows) else None
-    fd = sys.stdin.fileno(); old = termios.tcgetattr(fd)
+        return _numbered_pick(title, rows)
+    fd = sys.stdin.fileno()
+    try: old = termios.tcgetattr(fd)
+    except Exception: return _numbered_pick(title, rows)
     print(title)
     def draw():
         for i, r in enumerate(rows):
@@ -429,19 +431,18 @@ def select_menu(title, rows, idx=0):
     try:
         tty.setcbreak(fd)
         while True:
-            ch = sys.stdin.read(1)
-            if ch == "\x1b":
-                r, _, _ = _sel.select([fd], [], [], 0.06)
-                if r:
-                    seq = sys.stdin.read(2)
-                    if seq == "[A": idx = (idx - 1) % len(rows)
-                    elif seq == "[B": idx = (idx + 1) % len(rows)
-                else:
-                    return None
-            elif ch in ("\r", "\n"): return idx
-            elif ch == "k": idx = (idx - 1) % len(rows)
-            elif ch == "j": idx = (idx + 1) % len(rows)
-            elif ch in ("\x03", "q"): return None
+            b = os.read(fd, 6)          # an arrow arrives as b'\x1b[A' in one burst
+            if not b: continue
+            if b in (b"\r", b"\n"): return idx
+            if b in (b"\x03", b"q", b"\x1b"): return None   # Ctrl-C / q / bare Esc
+            if b[:2] == b"\x1b[":
+                k = b[2:3]
+                if k == b"A": idx = (idx - 1) % len(rows)
+                elif k == b"B": idx = (idx + 1) % len(rows)
+                else: continue
+            elif b == b"k": idx = (idx - 1) % len(rows)
+            elif b == b"j": idx = (idx + 1) % len(rows)
+            else: continue
             sys.stdout.write("\033[%dA" % len(rows)); draw()
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
