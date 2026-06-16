@@ -3,24 +3,42 @@
 # styled to look like Claude Code. Uses YOUR OWN API key (Anthropic or
 # OpenRouter) from the environment. Single file, standard library only.
 from __future__ import print_function
-import os, sys, json, time, threading, subprocess, shutil, tempfile, re
+import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "1.1"
+VERSION = "1.2"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
 def _c(s, code):
     return ("\033[%sm%s\033[0m" % (code, s)) if COLOR else s
-ORANGE = "38;2;217;119;87"      # Claude's terracotta
-TAN    = "38;2;200;160;130"
 DIM    = "2;37"
 GREY   = "38;2;140;140;150"
 GREEN  = "38;2;126;192;80"
 RED    = "38;2;229;90;90"
 BLUE   = "38;2;120;160;255"
 BOLD   = "1"
-def orange(s): return _c(s, ORANGE)
+
+# Swappable colour themes: each sets the accent (used everywhere as orange())
+# and the 5-stop wordmark gradient. Change live with /themes.
+THEMES = {
+    "ember":     {"accent": (217, 119, 87),  "grad": [(99,102,241),(168,85,247),(217,70,160),(240,118,92),(245,176,86)]},
+    "synthwave": {"accent": (255, 92, 170),  "grad": [(99,72,255),(173,66,235),(255,72,180),(255,120,96),(255,196,92)]},
+    "matrix":    {"accent": (90, 220, 130),  "grad": [(20,110,55),(46,190,96),(120,236,150),(196,255,205),(80,214,128)]},
+    "ice":       {"accent": (96, 180, 255),  "grad": [(64,96,210),(86,160,255),(128,220,255),(190,242,255),(120,200,255)]},
+    "gold":      {"accent": (240, 184, 84),  "grad": [(120,64,24),(200,120,44),(245,182,84),(255,224,150),(244,176,80)]},
+    "mono":      {"accent": (224, 224, 232), "grad": [(96,96,108),(150,150,162),(208,208,220),(244,244,248),(176,176,190)]},
+}
+THEME = {"name": "ember", "accent": THEMES["ember"]["accent"], "grad": list(THEMES["ember"]["grad"])}
+def set_theme(name):
+    if name not in THEMES: return False
+    THEME["name"] = name
+    THEME["accent"] = THEMES[name]["accent"]
+    THEME["grad"] = list(THEMES[name]["grad"])
+    return True
+
+def _code(rgb): return "38;2;%d;%d;%d" % tuple(rgb)
+def orange(s): return _c(s, _code(THEME["accent"]))   # "orange" = the active theme accent
 def dim(s):    return _c(s, DIM)
 def grey(s):   return _c(s, GREY)
 def green(s):  return _c(s, GREEN)
@@ -38,12 +56,12 @@ VANTA_ART = [
     " ╚████╔╝ ██║  ██║██║ ╚████║   ██║   ██║  ██║",
     "  ╚═══╝  ╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝",
 ]
-GRAD_STOPS = [(99, 102, 241), (168, 85, 247), (217, 70, 160), (240, 118, 92), (245, 176, 86)]
 def _lerp(a, b, t): return tuple(int(a[k] + (b[k] - a[k]) * t) for k in range(3))
-def _grad_at(t):
-    if t <= 0: return GRAD_STOPS[0]
-    if t >= 1: return GRAD_STOPS[-1]
-    seg = t * (len(GRAD_STOPS) - 1); i = int(seg); return _lerp(GRAD_STOPS[i], GRAD_STOPS[i + 1], seg - i)
+def _at(stops, t):
+    if t <= 0: return stops[0]
+    if t >= 1: return stops[-1]
+    seg = t * (len(stops) - 1); i = int(seg); return _lerp(stops[i], stops[i + 1], seg - i)
+def _grad_at(t): return _at(THEME["grad"], t)
 def grad_line(line):
     if not COLOR: return line
     n = max(1, len(line) - 1); out = []; last = None
@@ -172,12 +190,51 @@ def tool_read_file(a):
     if len(txt) > 60000: txt = txt[:60000] + "\n... (truncated)"
     return txt, "%d lines" % (txt.count("\n") + 1)
 
+def _gutter(c, n, sign):
+    label = ("%4d %s " % (n, sign)) if n else ("     %s " % sign)
+    return c(label)
+
+def print_diff(old, new):
+    new_lines = new.splitlines()
+    if not old:                                   # brand-new file: all additions
+        print("  " + dim("⎿  ") + green("+%d lines" % len(new_lines)))
+        for i, ln in enumerate(new_lines[:26], 1):
+            print("     " + _gutter(green, i, "+") + green(ln[:96]))
+        if len(new_lines) > 26: print("     " + dim("… +%d more lines" % (len(new_lines) - 26)))
+        return
+    diff = list(difflib.unified_diff(old.splitlines(), new_lines, n=2, lineterm=""))
+    added = sum(1 for l in diff if l[:1] == "+" and not l.startswith("+++"))
+    removed = sum(1 for l in diff if l[:1] == "-" and not l.startswith("---"))
+    if added == 0 and removed == 0:
+        print("  " + dim("⎿  no changes")); return
+    print("  " + dim("⎿  ") + green("+%d" % added) + dim("  ") + red("-%d" % removed))
+    shown = 0; nl = 0
+    for l in diff:
+        if l.startswith("+++") or l.startswith("---"): continue
+        if l.startswith("@@"):
+            m = re.search(r"\+(\d+)", l); nl = int(m.group(1)) if m else nl
+            if shown: print("     " + dim("┄┄┄"))
+            continue
+        if shown >= 44:
+            print("     " + dim("… more changes")); break
+        if l[:1] == "+":
+            print("     " + _gutter(green, nl, "+") + green(l[1:][:96])); nl += 1; shown += 1
+        elif l[:1] == "-":
+            print("     " + _gutter(red, 0, "-") + red(l[1:][:96])); shown += 1
+        else:
+            print("     " + _gutter(dim, nl, " ") + dim(l[1:][:96])); nl += 1
+
 def tool_write_file(a):
     p = os.path.expanduser(a["path"]); content = a.get("content", "")
+    old = ""
+    if os.path.exists(p):
+        try: old = open(p).read()
+        except Exception: old = ""
     d = os.path.dirname(p)
     if d and not os.path.isdir(d): os.makedirs(d)
     with open(p, "w") as f: f.write(content)
-    return "Wrote %s" % p, "%d lines" % (content.count("\n") + 1)
+    print_diff(old, content)
+    return ("Wrote %s" % p, None)   # None summary: print_diff already drew the ⎿ line
 
 def tool_make_dir(a):
     p = os.path.expanduser(a["path"])
@@ -292,7 +349,8 @@ DISPATCH = {"read_file": tool_read_file, "write_file": tool_write_file,
 
 def tool_label(name, a):
     if name == "read_file":  return "Read(%s)" % a.get("path", "")
-    if name == "write_file": return "Write(%s)" % a.get("path", "")
+    if name == "write_file":
+        return ("Update(%s)" if os.path.exists(os.path.expanduser(a.get("path", ""))) else "Write(%s)") % a.get("path", "")
     if name == "list_files": return "List(%s)" % a.get("path", ".")
     if name == "make_dir":   return "Mkdir(%s)" % a.get("path", "")
     if name == "move_path":  return "Move(%s -> %s)" % (a.get("from", ""), a.get("to", ""))
@@ -308,7 +366,8 @@ def run_tool(name, a):
         result, summary = DISPATCH[name](a)
     except Exception as e:
         result, summary = ("Error: %s" % e), "error"
-    print("  " + dim("⎿  " + summary))
+    if summary is not None:          # tools that drew their own ⎿ (diffs) return None
+        print("  " + dim("⎿  " + summary))
     return result
 
 # --------------------------------------------------------------- LLM client --
@@ -493,6 +552,7 @@ HELP = """  Commands:
     /help            show this help
     /clear           start a fresh conversation
     /compact         summarize the conversation now (also happens automatically)
+    /themes          pick a color theme (ember, synthwave, matrix, ice, gold, mono)
     /provider [name] list providers, or switch: anthropic | openrouter | ollama
     /model [n|name]  list models and pick one (/model 2), or set any id
     /auto            toggle auto-approve for writes & shell (currently: %s)
@@ -686,6 +746,22 @@ def select_menu(title, rows, idx=0):
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
+def theme_swatch(nm):
+    th = THEMES[nm]
+    if not COLOR: return "%-10s ########" % nm
+    blocks = "".join("\033[%sm█" % _code(_at(th["grad"], k / 7.0)) for k in range(8)) + "\033[0m"
+    return "\033[%sm%-10s\033[0m %s" % (_code(th["accent"]), nm, blocks)
+
+def do_theme_menu(cfg):
+    names = list(THEMES)
+    idx = names.index(THEME["name"]) if THEME["name"] in names else 0
+    sel = select_menu(orange("Choose a theme") + dim("   ↑/↓ then Enter · Esc to cancel"),
+                      [theme_swatch(n) for n in names], idx)
+    if sel is None:
+        print(dim("  (kept " + THEME["name"] + ")")); return
+    set_theme(names[sel]); save_config({"theme": names[sel]})
+    print(); banner(cfg)   # re-show the banner so you see the new colors instantly
+
 def do_provider_menu(cfg):
     keys = list(PROVIDERS.keys())
     rows = []
@@ -755,6 +831,7 @@ def main():
     cfg = load_config()
     if not cfg:
         no_key_screen(); return
+    set_theme(file_config().get("theme", "ember"))   # restore the saved theme
 
     banner(cfg)
     history = []
@@ -775,6 +852,7 @@ def main():
                 if history: history[:] = compact_history(cfg, history)
                 else: print(dim("  nothing to compact yet."))
             elif name == "auto": AUTO["on"] = not AUTO["on"]; print(dim("  auto-approve %s." % ("on" if AUTO["on"] else "off")))
+            elif name in ("themes", "theme"): do_theme_menu(cfg)
             elif name == "model":
                 if not rest or rest.lower() == "refresh":
                     if rest.lower() == "refresh": _MODEL_CACHE.pop(cfg["provider"], None)

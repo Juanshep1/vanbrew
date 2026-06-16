@@ -70,7 +70,7 @@ Set any (or several) and switch live with **`/provider`**. Optional:
 
 ## Commands
 
-`/help` · `/clear` · `/provider [name]` · `/model [n|name]` · `/auto` · `/cwd <path>` · `/exit`
+`/help` · `/clear` · `/compact` · `/themes` · `/provider [name]` · `/model [n|name]` · `/auto` · `/cwd <path>` · `/exit`
 
 - **`/provider`** — an **arrow-key menu** (↑/↓, Enter, Esc to cancel). Pick a
   provider; if it has no key yet you're prompted to **paste your API key**, which
@@ -93,6 +93,13 @@ the `run_app` tool pops the app up in a **movable, draggable window**. A web app
 or the tip calculator opens chromeless and movable; a `serve()` app is started
 and opened at its port. (Plain non-visual scripts still run through `run_vanta`
 for their console output.)
+
+## Themes & diffs
+
+- **`/themes`** — pick a color theme (ember · synthwave · matrix · ice · gold ·
+  mono). It restyles the accent and the gradient VANTA wordmark, and is saved.
+- **Live diffs** — when it writes or edits a file you see a Claude-Code-style
+  diff: `+` lines in green, `-` lines in red, with line numbers and context.
 
 ## Honest scope
 
