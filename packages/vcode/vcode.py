@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "1.2"
+VERSION = "1.3"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -637,11 +637,7 @@ def provider_models(cfg, refresh=False):
     sys.stdout.write("  " + dim("fetching the live model list…")); sys.stdout.flush()
     live = fetch_models(cfg)
     sys.stdout.write("\r\033[K"); sys.stdout.flush()
-    # OpenRouter lists hundreds of models — too many to scroll, so keep curated.
-    if live and not (prov == "openrouter" and len(live) > 60):
-        models = live
-    else:
-        models = MODELS.get(prov, [])
+    models = live if live else MODELS.get(prov, [])   # full live list (type to filter in the picker)
     _MODEL_CACHE[prov] = models
     return models
 
@@ -694,9 +690,10 @@ def _numbered_pick(title, rows):
     return n if 0 <= n < len(rows) else None
 
 def select_menu(title, rows, idx=0):
-    """Up/Down (or j/k) to move, Enter to pick, Esc/q to cancel. Returns index
-    or None. Falls back to a numbered prompt when there's no real terminal.
-    Reads raw bytes with os.read so terminal escape sequences arrive intact."""
+    """Up/Down to move, type to filter, Enter to pick, Esc to cancel. Returns the
+    ORIGINAL index of the chosen row (or None). Handles big lists (337 models)
+    via a scrolling viewport + live substring filter. Falls back to a numbered
+    prompt when there's no real terminal."""
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         return _numbered_pick(title, rows)
     try:
@@ -706,42 +703,64 @@ def select_menu(title, rows, idx=0):
     fd = sys.stdin.fileno()
     try: old = termios.tcgetattr(fd)
     except Exception: return _numbered_pick(title, rows)
-    n = len(rows)
+    n_all = len(rows)
+    plain = [re.sub(r"\033\[[0-9;]*m", "", r) for r in rows]   # for matching
     try: height = shutil.get_terminal_size().lines
     except Exception: height = 24
-    vis = max(4, min(n, height - 5))     # how many rows are visible at once
-    top = [0]
+    vis = max(4, min(n_all, height - 6))
+    query = [""]; cur = [min(idx, n_all - 1) if n_all else 0]; fil = [list(range(n_all))]; top = [0]
+    def refilter():
+        q = query[0].lower()
+        fil[0] = list(range(n_all)) if not q else [i for i in range(n_all) if q in plain[i].lower()]
+        cur[0] = 0; top[0] = 0
     print(title)
     def draw():
-        if idx < top[0]: top[0] = idx
-        elif idx >= top[0] + vis: top[0] = idx - vis + 1
-        top[0] = max(0, min(top[0], max(0, n - vis)))
+        m = len(fil[0])
+        if cur[0] >= m: cur[0] = max(0, m - 1)
+        if cur[0] < top[0]: top[0] = cur[0]
+        elif cur[0] >= top[0] + vis: top[0] = cur[0] - vis + 1
+        if top[0] > max(0, m - vis): top[0] = max(0, m - vis)
+        if top[0] < 0: top[0] = 0
         for r in range(vis):
             mi = top[0] + r
-            if mi < n:
-                ptr = orange("❯ ") if mi == idx else "  "
-                sys.stdout.write("\r\033[K" + ptr + (bold(rows[mi]) if mi == idx else dim(rows[mi])) + "\n")
+            if mi < m:
+                row = rows[fil[0][mi]]
+                ptr = orange("❯ ") if mi == cur[0] else "  "
+                sys.stdout.write("\r\033[K" + ptr + (bold(row) if mi == cur[0] else dim(row)) + "\n")
             else:
                 sys.stdout.write("\r\033[K\n")
-        tail = ("  ·  %d-%d of %d" % (top[0] + 1, min(top[0] + vis, n), n)) if n > vis else ""
-        sys.stdout.write("\r\033[K" + dim("  %d/%d  ↑/↓ Enter · Esc%s" % (idx + 1, n, tail)) + "\n")
+        flt = ("   filter: " + bold(query[0]) + "▏") if query[0] else "   (type to filter)"
+        sys.stdout.write("\r\033[K" + dim("  %d/%d  ↑/↓ Enter · Esc%s" % ((cur[0] + 1) if m else 0, m, flt)) + "\n")
         sys.stdout.flush()
     draw()
     try:
-        tty.setcbreak(fd)
+        nw = termios.tcgetattr(fd)            # raw input: no canonical, no echo, no signals
+        nw[3] = nw[3] & ~(termios.ICANON | termios.ECHO | termios.ISIG)
+        termios.tcsetattr(fd, termios.TCSANOW, nw)
         while True:
-            b = os.read(fd, 6)          # an arrow arrives as b'\x1b[A' in one burst
+            b = os.read(fd, 32)                    # may batch several typed chars
             if not b: continue
-            if b in (b"\r", b"\n"): return idx
-            if b in (b"\x03", b"q", b"\x1b"): return None   # Ctrl-C / q / bare Esc
-            if b[:2] == b"\x1b[":
-                k = b[2:3]
-                if k == b"A": idx = (idx - 1) % n
-                elif k == b"B": idx = (idx + 1) % n
-                else: continue
-            elif b == b"k": idx = (idx - 1) % n
-            elif b == b"j": idx = (idx + 1) % n
-            else: continue
+            if b[:1] == b"\x1b":                    # escape sequence or bare Esc
+                if len(b) >= 3 and b[1:2] == b"[":
+                    k = b[2:3]
+                    if k == b"A" and fil[0]: cur[0] = (cur[0] - 1) % len(fil[0])
+                    elif k == b"B" and fil[0]: cur[0] = (cur[0] + 1) % len(fil[0])
+                    else: continue
+                else:
+                    return None                     # bare Esc cancels
+            elif b in (b"\r", b"\n"):
+                return fil[0][cur[0]] if fil[0] else None
+            elif b == b"\x03":
+                return None
+            else:                                   # printable / backspace -> edit the filter
+                changed = False
+                for byte in bytearray(b):
+                    if byte in (8, 127):
+                        if query[0]: query[0] = query[0][:-1]; changed = True
+                    elif 32 <= byte <= 126:
+                        query[0] += chr(byte); changed = True
+                if not changed: continue
+                refilter()
             sys.stdout.write("\033[%dA" % (vis + 1)); draw()
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)

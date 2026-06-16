@@ -158,7 +158,7 @@
     ]
   },
   "vcode": {
-    "version": "1.2",
+    "version": "1.3",
     "summary": "Vanta Code (vcode) - a Claude Code-style terminal coding agent that speaks Vanta; full filesystem access (make folders/move/delete, code anywhere), builds apps from scratch, runs them in a movable window",
     "deps": [
       "vanta"
