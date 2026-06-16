@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "1.4"
+VERSION = "1.5"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -146,6 +146,20 @@ Put real inputs/buttons in <div id='body'> and their logic in the <script> (use 
 PREFER this file pattern (write HTML -> open_url) for visual apps: it has NO port and never clashes with anything. Use serve() ONLY when you truly need a live backend, and then pick an UNCOMMON HIGH PORT like 8765 - NEVER 8080, 8090, or 8100 (the user already runs apps there, e.g. a conlang site on 8080; opening those shows the wrong app). If run_app says a port is busy, change to another free high port and run_app again."""
 
 _CTX = {"text": ""}   # project context (VANTA.md / AGENTS.md / CLAUDE.md), loaded at startup
+USAGE = {"ctx": 0, "out": 0}   # last input (context) tokens + cumulative output tokens
+
+def _human(n):
+    return ("%.1fk" % (n / 1000.0)) if n >= 1000 else str(int(n))
+
+def session_path(): return os.path.expanduser("~/.vanta-code/last_session.json")
+def save_session(history):
+    try:
+        os.makedirs(os.path.dirname(session_path()), exist_ok=True)
+        json.dump(history, open(session_path(), "w"))
+    except Exception: pass
+def load_session():
+    try: return json.load(open(session_path()))
+    except Exception: return None
 def load_project_context():
     chunks = []
     for nm in ("VANTA.md", "AGENTS.md", "CLAUDE.md"):
@@ -497,6 +511,8 @@ def call_llm(cfg, history):
         headers = {"x-api-key": cfg["key"], "anthropic-version": "2023-06-01",
                    "content-type": "application/json"}
         j = http_json("https://api.anthropic.com/v1/messages", payload, headers)
+        u = j.get("usage", {}) or {}
+        USAGE["ctx"] = u.get("input_tokens", USAGE["ctx"]); USAGE["out"] += u.get("output_tokens", 0)
         blocks = j.get("content", [])
         stop = "tool" if j.get("stop_reason") == "tool_use" else "end"
         return {"content": blocks, "stop": stop}
@@ -509,6 +525,8 @@ def call_llm(cfg, history):
         headers = {"Authorization": "Bearer " + cfg["key"], "content-type": "application/json",
                    "HTTP-Referer": "https://github.com/Juanshep1/vanbrew", "X-Title": "Vanta Code"}
         j = http_json(cfg["base"] + "/chat/completions", payload, headers)
+        u = j.get("usage", {}) or {}
+        USAGE["ctx"] = u.get("prompt_tokens", USAGE["ctx"]); USAGE["out"] += u.get("completion_tokens", 0)
         m = j["choices"][0]["message"]
         blocks = []
         if m.get("content"): blocks.append({"type": "text", "text": m["content"]})
@@ -598,30 +616,85 @@ def compact_history(cfg, history):
     print("  " + dim("↻ compacted earlier conversation to save context"))
     return [{"role": "user", "content": "[Summary of our earlier conversation]\n" + text}]
 
+class EscWatch(object):
+    """Watches stdin for Esc during a turn (in raw, no-echo mode) and sets a flag."""
+    def __init__(self): self.stop = False; self.aborted = False; self.t = None; self.fd = None; self.old = None
+    def start(self):
+        if not sys.stdin.isatty(): return self
+        try:
+            import termios
+            self.fd = sys.stdin.fileno(); self.old = termios.tcgetattr(self.fd)
+            nw = termios.tcgetattr(self.fd); nw[3] = nw[3] & ~(termios.ICANON | termios.ECHO)
+            termios.tcsetattr(self.fd, termios.TCSANOW, nw)
+        except Exception:
+            self.old = None; return self
+        def run():
+            import select
+            while not self.stop:
+                try:
+                    r, _, _ = select.select([self.fd], [], [], 0.1)
+                    if r and os.read(self.fd, 1) == b"\x1b": self.aborted = True
+                except Exception:
+                    break
+        self.t = threading.Thread(target=run); self.t.daemon = True; self.t.start(); return self
+    def done(self):
+        self.stop = True
+        if self.t: self.t.join(0.3)
+        if self.old is not None:
+            try:
+                import termios; termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old)
+            except Exception: pass
+        return self.aborted
+
+def _call_worker(cfg, history, box):
+    try: box["r"] = call_llm(cfg, history)
+    except Exception as e: box["e"] = e
+
+def _ensure_assistant(history):
+    # keep roles alternating after an interrupt so the next call stays valid
+    if history and history[-1].get("role") != "assistant":
+        history.append({"role": "assistant", "content": [{"type": "text", "text": "(interrupted)"}]})
+
 def agent_turn(cfg, history, user_text):
     if history_size(history) > COMPACT_AT:        # auto-compact long sessions
         history[:] = compact_history(cfg, history)
     history.append({"role": "user", "content": user_text})
-    for _ in range(60):
-        sp = Spinner(SPIN_WORDS[int(time.time()) % len(SPIN_WORDS)]).start()
-        try:
-            resp = call_llm(cfg, history)
-        except Exception as e:
-            sp.stop(); print(red("⏺ " + str(e))); return
-        sp.stop()
-        history.append({"role": "assistant", "content": resp["content"]})
-        # print any text, run any tools
-        results = []
-        for b in resp["content"]:
-            if b["type"] == "text" and b["text"].strip():
-                print_assistant(b["text"])
-            elif b["type"] == "tool_use":
-                out = run_tool(b["name"], b.get("input", {}))
-                results.append({"type": "tool_result", "tool_use_id": b["id"], "content": out})
-        if resp["stop"] != "tool" or not results:
-            return
-        history.append({"role": "user", "content": results})
-    print(dim("  (stopped after too many steps)"))
+    w = EscWatch().start()
+    try:
+        for _ in range(60):
+            sp = Spinner(SPIN_WORDS[int(time.time()) % len(SPIN_WORDS)]).start()
+            box = {}
+            th = threading.Thread(target=_call_worker, args=(cfg, history, box)); th.daemon = True; th.start()
+            while th.is_alive():
+                if w.aborted: break
+                th.join(0.08)
+            sp.stop()
+            if w.aborted:
+                _ensure_assistant(history); print(dim("  ⎚ interrupted (Esc)")); return
+            if "e" in box:
+                print(red("⏺ " + str(box["e"]))); return
+            resp = box.get("r")
+            if not resp: return
+            history.append({"role": "assistant", "content": resp["content"]})
+            results = []
+            for b in resp["content"]:
+                if b["type"] == "text" and b["text"].strip():
+                    print_assistant(b["text"])
+                elif b["type"] == "tool_use":
+                    if w.aborted:
+                        results.append({"type": "tool_result", "tool_use_id": b["id"], "content": "(interrupted)"})
+                    else:
+                        out = run_tool(b["name"], b.get("input", {}))
+                        results.append({"type": "tool_result", "tool_use_id": b["id"], "content": out})
+            tool_uses = any(b["type"] == "tool_use" for b in resp["content"])
+            if tool_uses: history.append({"role": "user", "content": results})
+            if w.aborted:
+                _ensure_assistant(history); print(dim("  ⎚ interrupted (Esc)")); return
+            if resp["stop"] != "tool" or not tool_uses:
+                return
+        print(dim("  (stopped after too many steps)"))
+    finally:
+        w.done()
 
 # ----------------------------------------------------------------- ui --------
 def box(lines, width=None):
@@ -653,6 +726,7 @@ HELP = """  Commands:
     /help            show this help
     /clear           start a fresh conversation
     /compact         summarize the conversation now (also happens automatically)
+    /resume          reload your previous session (or start with: vcode --continue)
     /init            scan the project and write a VANTA.md (auto-loaded next time)
     /themes          pick a color theme (ember, synthwave, matrix, ice, gold, mono)
     /provider [name] list providers, or switch: anthropic | openrouter | ollama
@@ -662,6 +736,8 @@ HELP = """  Commands:
     /exit, /quit     leave
 
   Shortcuts:
+    Esc              interrupt the agent while it's working
+    \"\"\"              start a multi-line message (end with \"\"\" on its own line)
     !<command>       run a shell command directly (e.g. !ls, !git status)
     @path/to/file    inline a file's contents into your message
     ↑ / ↓            recall previous prompts (history is saved)
@@ -679,6 +755,8 @@ def _rl_prompt():
 
 def prompt_input():
     w = term_width()
+    if USAGE["ctx"]:
+        print(dim("  context ~%s tokens  ·  %s out" % (_human(USAGE["ctx"]), _human(USAGE["out"]))))
     print(orange("╭" + "─" * (w - 2) + "╮"))
     line = input(_rl_prompt())            # readline gives up-arrow history + line editing
     print(orange("╰" + "─" * (w - 2) + "╯"))
@@ -961,8 +1039,9 @@ def main():
         print("vcode " + VERSION); return
     if "--help" in args or "-h" in args:
         print("vcode - a terminal coding agent that speaks Vanta.\n")
-        print("  Usage: vanta-code            start the interactive agent")
-        print("         vanta-code --version  print version\n")
+        print("  Usage: vcode             start the interactive agent")
+        print("         vcode --continue  resume your last session")
+        print("         vcode --version   print version\n")
         print("  Needs ANTHROPIC_API_KEY or OPENROUTER_API_KEY in your environment.")
         return
 
@@ -988,6 +1067,9 @@ def main():
 
     banner(cfg)
     history = []
+    if "--continue" in args or "-c" in args:
+        s = load_session()
+        if s: history[:] = s; print(dim("  ↻ continued previous session (%d messages)\n" % len(s)))
     while True:
         try:
             line = prompt_input().strip()
@@ -995,6 +1077,18 @@ def main():
             print("\n" + dim("  bye.")); return
         if not line:
             continue
+        if line == '"""':                              # paste a multi-line block until the next """
+            buf = []
+            while True:
+                try: more = input(dim("  ┃ "))
+                except EOFError: break
+                if more.strip() == '"""': break
+                buf.append(more)
+            block = "\n".join(buf).strip()
+            if not block: continue
+            try: agent_turn(cfg, history, expand_mentions(block))
+            except KeyboardInterrupt: print("\n" + dim("  (interrupted)"))
+            save_session(history); print(); continue
         if line.startswith("!"):                       # run a shell command directly
             cmd = line[1:].strip()
             if cmd:
@@ -1003,6 +1097,7 @@ def main():
                     o = r.stdout.decode("utf-8", "replace")
                     print(o.rstrip() if o.strip() else dim("  (no output)"))
                     history.append({"role": "user", "content": "I ran `%s`; output:\n%s" % (cmd, o[:4000])})
+                    save_session(history)
                 except Exception as e:
                     print(red("  " + str(e)))
             continue
@@ -1018,6 +1113,10 @@ def main():
             elif name == "init":
                 agent_turn(cfg, history, expand_mentions("Look around this project (use glob/list_files/read_file) and write a short VANTA.md in the current folder: what it is, how to run it, key files, and any Vanta conventions used. Then confirm you created it."))
                 _CTX["text"] = load_project_context()
+            elif name == "resume":
+                s = load_session()
+                if s: history[:] = s; print(dim("  resumed %d messages from your last session." % len(s)))
+                else: print(dim("  no saved session found."))
             elif name == "auto": AUTO["on"] = not AUTO["on"]; print(dim("  auto-approve %s." % ("on" if AUTO["on"] else "off")))
             elif name in ("themes", "theme"): do_theme_menu(cfg)
             elif name == "model":
@@ -1060,6 +1159,7 @@ def main():
             agent_turn(cfg, history, expand_mentions(line))
         except KeyboardInterrupt:
             print("\n" + dim("  (interrupted)"))
+        save_session(history)
         print()
 
 if __name__ == "__main__":

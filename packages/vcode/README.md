@@ -54,6 +54,9 @@ vcode                                    # run it in any folder; cwd is your pro
   directly, `@path` to inline a file, **`/init`** to write a `VANTA.md` that's
   auto-loaded as project context, and **markdown-rendered** replies (bold, code,
   headings, fenced blocks).
+- **More Claude-Code touches** — press **Esc** to interrupt the agent mid-task, a
+  **context-token meter** above the prompt, **`/resume`** (or `vcode --continue`)
+  to reopen your last session, and **`"""`** to send a multi-line message.
 - **Looks like Claude Code** — welcome box, `⏺` tool-call lines with `⎿`
   results, a thinking spinner, the bordered prompt, slash commands.
 
