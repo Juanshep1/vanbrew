@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "1.8"
+VERSION = "1.9"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -222,15 +222,21 @@ def find_vanta():
     return None
 
 AUTO = {"on": False}  # session auto-approve toggle
+_WATCH = [None]       # the active EscWatch during a turn (so prompts can pause it)
 
 def _confirm(action):
     if AUTO["on"]: return True
+    w = _WATCH[0]
+    if w: w.suspend()                 # restore echo + normal input for the prompt
+    ans = ""
     try:
-        sys.stdout.write("  %s %s " % (orange("Proceed?"), dim("(y / N / a=always)")))
+        sys.stdout.write("\n  %s %s " % (orange("Proceed?"), dim("(y / N / a=always)")))
         sys.stdout.flush()
         ans = sys.stdin.readline().strip().lower()
     except Exception:
-        return False
+        ans = ""
+    finally:
+        if w: w.resume()
     if ans == "a": AUTO["on"] = True; return True
     return ans in ("y", "yes")
 
@@ -635,17 +641,21 @@ def compact_history(cfg, history):
     return [{"role": "user", "content": "[Summary of our earlier conversation]\n" + text}]
 
 class EscWatch(object):
-    """Watches stdin for Esc during a turn (in raw, no-echo mode) and sets a flag."""
+    """Watches stdin for Esc during a turn (raw, no-echo). Can be SUSPENDED so a
+    confirmation prompt can read input normally (with echo)."""
     def __init__(self): self.stop = False; self.aborted = False; self.t = None; self.fd = None; self.old = None
-    def start(self):
-        if not sys.stdin.isatty(): return self
-        try:
-            import termios
-            self.fd = sys.stdin.fileno(); self.old = termios.tcgetattr(self.fd)
-            nw = termios.tcgetattr(self.fd); nw[3] = nw[3] & ~(termios.ICANON | termios.ECHO)
-            termios.tcsetattr(self.fd, termios.TCSANOW, nw)
-        except Exception:
-            self.old = None; return self
+    def _raw(self):
+        import termios
+        self.fd = sys.stdin.fileno(); self.old = termios.tcgetattr(self.fd)
+        nw = termios.tcgetattr(self.fd); nw[3] = nw[3] & ~(termios.ICANON | termios.ECHO)
+        termios.tcsetattr(self.fd, termios.TCSANOW, nw)
+    def _cook(self):
+        if self.old is not None and self.fd is not None:
+            try:
+                import termios; termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old)
+            except Exception: pass
+    def _spawn(self):
+        self.stop = False
         def run():
             import select
             while not self.stop:
@@ -654,15 +664,23 @@ class EscWatch(object):
                     if r and os.read(self.fd, 1) == b"\x1b": self.aborted = True
                 except Exception:
                     break
-        self.t = threading.Thread(target=run); self.t.daemon = True; self.t.start(); return self
+        self.t = threading.Thread(target=run); self.t.daemon = True; self.t.start()
+    def start(self):
+        if not sys.stdin.isatty(): return self
+        try: self._raw()
+        except Exception: self.old = None; return self
+        self._spawn(); return self
+    def suspend(self):                # stop watching + restore the normal terminal (echo on)
+        if self.t: self.stop = True; self.t.join(0.3); self.t = None
+        self._cook()
+    def resume(self):                 # back to raw watching
+        if self.old is None or not sys.stdin.isatty(): return
+        try: self._raw()
+        except Exception: return
+        self._spawn()
     def done(self):
-        self.stop = True
-        if self.t: self.t.join(0.3)
-        if self.old is not None:
-            try:
-                import termios; termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old)
-            except Exception: pass
-        return self.aborted
+        if self.t: self.stop = True; self.t.join(0.3); self.t = None
+        self._cook(); return self.aborted
 
 def _call_worker(cfg, history, box):
     try: box["r"] = call_llm(cfg, history)
@@ -677,7 +695,7 @@ def agent_turn(cfg, history, user_text):
     if history_size(history) > COMPACT_AT:        # auto-compact long sessions
         history[:] = compact_history(cfg, history)
     history.append({"role": "user", "content": user_text})
-    w = EscWatch().start()
+    w = EscWatch().start(); _WATCH[0] = w
     try:
         for _ in range(60):
             sp = Spinner(SPIN_WORDS[int(time.time()) % len(SPIN_WORDS)]).start()
@@ -712,7 +730,7 @@ def agent_turn(cfg, history, user_text):
                 return
         print(dim("  (stopped after too many steps)"))
     finally:
-        w.done()
+        w.done(); _WATCH[0] = None
 
 # ----------------------------------------------------------------- ui --------
 def box(lines, width=None):
