@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "1.6"
+VERSION = "1.7"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -143,7 +143,24 @@ say "opened"
 
 Put real inputs/buttons in <div id='body'> and their logic in the <script> (use `{{`/`}}` for braces).
 
-PREFER this file pattern (write HTML -> open_url) for visual apps: it has NO port and never clashes with anything. Use serve() ONLY when you truly need a live backend, and then pick an UNCOMMON HIGH PORT like 8765 - NEVER 8080, 8090, or 8100 (the user already runs apps there, e.g. a conlang site on 8080; opening those shows the wrong app). If run_app says a port is busy, change to another free high port and run_app again."""
+PREFER this file pattern (write HTML -> open_url) for visual apps: it has NO port and never clashes with anything. Use serve() ONLY when you truly need a live backend, and then pick an UNCOMMON HIGH PORT like 8765 - NEVER 8080, 8090, or 8100 (the user already runs apps there, e.g. a conlang site on 8080; opening those shows the wrong app). If run_app says a port is busy, change to another free high port and run_app again.
+
+# Building a GAME in Vanta (the vanta-game engine)
+Vanta can make real 2D games that compile to a NATIVE binary (no Python) and run in a window via SDL. A game is a .va file using the game API below; it's built from the vanta-game project with `./build.sh <name>` then run with `./<name>` (needs SDL2 + the project's sdlrt.c runtime — see github.com/Juanshep1/vanta-game). The game loop:
+
+background(rgb(12, 14, 32))
+while quit() is 0
+    poll()
+    if held("left") is 1
+        change px to px - 6
+    end
+    clear()
+    rfill(px, py, 40, 40, rgb(94, 240, 200), 8)
+    present()
+    delay(16)
+end
+
+Game API: `screen_w()` `screen_h()`; `rgb(r,g,b)`; `background(c)`; `clear()`; `present()`; `fill(x,y,w,h,c)`; `rfill(x,y,w,h,c,radius)`; `circle(x,y,r,c)`; `line(x0,y0,x1,y1,c)`; `rect(x,y,w,h,c)`; `text_at`/`text_big`/`text_huge(x,y,s,c)`; `poll()`; `held("left"|"right"|"up"|"down"|"space"|"a".."z")` -> 1/0; `pressed(name)` -> 1 only the frame a key goes down; `key()` -> last typed char; `mouse_x()` `mouse_y()` `mouse_down()`; `sound(freq,ms)`; `random(n)` `random_range(a,b)`; `quit()` -> 1 when the window is closed; `ticks()`; `delay(ms)`; `title(s)`. Keep state in lists/maps and grow them freely — the game runtime has a garbage collector. Numbers are integers (no floats). Do NOT use serve()/run_app for games; they're native windowed apps built with build.sh."""
 
 _CTX = {"text": ""}   # project context (VANTA.md / AGENTS.md / CLAUDE.md), loaded at startup
 USAGE = {"ctx": 0, "out": 0}   # last input (context) tokens + cumulative output tokens
