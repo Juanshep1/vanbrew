@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "1.9"
+VERSION = "2.0"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -164,9 +164,30 @@ Game API: `screen_w()` `screen_h()`; `rgb(r,g,b)`; `background(c)`; `clear()`; `
 
 _CTX = {"text": ""}   # project context (VANTA.md / AGENTS.md / CLAUDE.md), loaded at startup
 USAGE = {"ctx": 0, "out": 0}   # last input (context) tokens + cumulative output tokens
+SESSION = {"start": None, "tools": 0, "turns": 0}   # /cost stats for this run
 
 def _human(n):
     return ("%.1fk" % (n / 1000.0)) if n >= 1000 else str(int(n))
+
+VKW = set("let be to end if otherwise while for each in give back change say add and or "
+          "not is at least most over under range text number length keys serve".split())
+def _hl_code(line):
+    # light Vanta syntax highlighting for fenced code blocks in replies
+    if not COLOR: return "  | " + line
+    out = []; i = 0; n = len(line)
+    while i < n:
+        c = line[i]
+        if c == "#": out.append(green(line[i:])); break              # comment to EOL
+        if c == '"':                                                  # string literal
+            j = i + 1
+            while j < n and line[j] != '"': j += 1
+            out.append(blue(line[i:j + 1])); i = j + 1; continue
+        if c.isalpha() or c == "_":                                   # word / keyword
+            j = i
+            while j < n and (line[j].isalnum() or line[j] == "_"): j += 1
+            w = line[i:j]; out.append(orange(w) if w in VKW else w); i = j; continue
+        out.append(c); i += 1
+    return dim("  │ ") + "".join(out)
 
 def session_path(): return os.path.expanduser("~/.vanta-code/last_session.json")
 def save_session(history):
@@ -481,6 +502,7 @@ def tool_label(name, a):
     return "%s(%s)" % (name, a)
 
 def run_tool(name, a):
+    SESSION["tools"] += 1
     print(orange("⏺ ") + bold(tool_label(name, a)))
     try:
         result, summary = DISPATCH[name](a)
@@ -590,7 +612,7 @@ def print_assistant(text):
             fence = not fence
             rendered.append(dim("  " + "┄" * 24)); continue
         if fence:
-            rendered.append(grey("  │ " + raw)); continue
+            rendered.append(_hl_code(raw)); continue
         h = re.match(r"^(#{1,6})\s+(.*)", raw)
         if h: rendered.append(bold(orange(h.group(2)))); continue
         b = re.match(r"^(\s*)[-*]\s+(.*)", raw)
@@ -695,6 +717,7 @@ def agent_turn(cfg, history, user_text):
     if history_size(history) > COMPACT_AT:        # auto-compact long sessions
         history[:] = compact_history(cfg, history)
     history.append({"role": "user", "content": user_text})
+    SESSION["turns"] += 1
     w = EscWatch().start(); _WATCH[0] = w
     try:
         for _ in range(60):
@@ -769,11 +792,13 @@ HELP = """  Commands:
     /key             paste/replace the API key for the current provider
     /model [n|name]  list models and pick one (/model 2), or set any id
     /auto            toggle auto-approve for writes & shell (currently: %s)
+    /cost            show session time, turns, tool calls and token usage
     /cwd <path>      change working directory
     /exit, /quit     leave
 
   Shortcuts:
     Esc              interrupt the agent while it's working
+    Tab              complete a /command or an @file path
     \"\"\"              start a multi-line message (end with \"\"\" on its own line)
     !<command>       run a shell command directly (e.g. !ls, !git status)
     @path/to/file    inline a file's contents into your message
@@ -787,8 +812,16 @@ HELP = """  Commands:
 
 def _rl_prompt():
     if not COLOR: return "› "
-    # \001..\002 wrap non-printing bytes so readline counts width correctly
-    return "\001\033[%sm\002│ › \001\033[0m\002" % _code(THEME["accent"])
+    code = "\033[%sm" % _code(THEME["accent"])
+    # GNU readline needs \001..\002 around non-printing bytes for width; but those
+    # markers break libedit's Tab-completion (macOS), so there we use raw escapes.
+    try:
+        import readline
+        if "libedit" in (readline.__doc__ or ""):
+            return code + "│ › \033[0m"
+    except Exception:
+        pass
+    return "\001%s\002│ › \001\033[0m\002" % code
 
 def prompt_input():
     w = term_width()
@@ -1147,8 +1180,33 @@ def main():
             try: readline.write_history_file(_hist)
             except Exception: pass
         atexit.register(_savehist)
+        # tab-completion: slash commands at line start, else @file / path completion
+        import glob as _glob
+        _SLASH = ["/help", "/clear", "/compact", "/cost", "/resume", "/init", "/themes",
+                  "/provider", "/key", "/model", "/auto", "/cwd", "/exit", "/quit"]
+        def _complete(word, state):
+            buf = readline.get_line_buffer().lstrip()
+            opts = []
+            if buf.startswith("/") and " " not in buf:
+                opts = [c + " " for c in _SLASH if c.startswith(word)]
+            else:
+                at = word.startswith("@")
+                pref = word[1:] if at else word
+                try:
+                    for m in sorted(_glob.glob(os.path.expanduser(pref) + "*"))[:40]:
+                        opts.append(("@" if at else "") + m + ("/" if os.path.isdir(m) else ""))
+                except Exception:
+                    opts = []
+            return opts[state] if state < len(opts) else None
+        readline.set_completer_delims(" \t\n")
+        readline.set_completer(_complete)
+        if "libedit" in (getattr(readline, "__doc__", "") or ""):
+            readline.parse_and_bind("bind ^I rl_complete")   # macOS libedit
+        else:
+            readline.parse_and_bind("tab: complete")          # GNU readline
     except Exception:
         pass
+    SESSION["start"] = time.time()
 
     banner(cfg)
     history = []
@@ -1246,6 +1304,12 @@ def main():
                     try: os.chdir(os.path.expanduser(rest)); print(dim("  cwd -> " + os.getcwd()))
                     except Exception as e: print(red("  " + str(e)))
                 else: print(dim("  cwd: " + os.getcwd()))
+            elif name == "cost":
+                el = int(time.time() - SESSION["start"]) if SESSION["start"] else 0
+                print(dim("  session  %dm %02ds  ·  %d turns  ·  %d tool calls" %
+                          (el // 60, el % 60, SESSION["turns"], SESSION["tools"])))
+                print(dim("  tokens   ~%s in context  ·  %s generated" %
+                          (_human(USAGE["ctx"]), _human(USAGE["out"]))))
             else: print(dim("  unknown command. /help for the list."))
             continue
         try:
