@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "1.7"
+VERSION = "1.8"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -509,13 +509,14 @@ def to_openai_msgs(history):
                 elif b["type"] == "tool_use":
                     calls.append({"id": b["id"], "type": "function",
                                   "function": {"name": b["name"], "arguments": json.dumps(b["input"])}})
-            msg = {"role": "assistant", "content": text or None}
+            msg = {"role": "assistant", "content": text}   # "" not None: Ollama/OpenAI reject null content
             if calls: msg["tool_calls"] = calls
             out.append(msg)
         else:  # user with tool_result blocks
             for b in m["content"]:
                 if b["type"] == "tool_result":
-                    out.append({"role": "tool", "tool_call_id": b["tool_use_id"], "content": b["content"]})
+                    c = b.get("content", "")
+                    out.append({"role": "tool", "tool_call_id": b["tool_use_id"], "content": c if isinstance(c, str) else str(c)})
                 elif b["type"] == "text":
                     out.append({"role": "user", "content": b["text"]})
     return out
@@ -886,15 +887,27 @@ def load_config():
 def save_config(updates):
     path = os.path.expanduser("~/.vanta-code/config.json")
     d = file_config(); d.update(updates)
-    dirp = os.path.dirname(path)
-    if not os.path.isdir(dirp): os.makedirs(dirp)
-    with open(path, "w") as f: json.dump(d, f, indent=2)
-    try: os.chmod(path, 0o600)
-    except Exception: pass
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f: json.dump(d, f, indent=2)
+        try: os.chmod(path, 0o600)
+        except Exception: pass
+    except Exception as e:
+        print(red("  could not write config: %s" % e))
 
 def _saved_key(provider):
     fc = file_config()
     return fc.get("key") if fc.get("provider") == provider else None
+
+def _ask_key(envname):
+    # hidden input first; fall back to a visible prompt if the terminal can't hide it
+    import getpass
+    try: k = getpass.getpass("  " + orange("paste %s ❯ " % envname))
+    except Exception: k = ""
+    if not k.strip():
+        try: k = input("  " + orange("paste %s (visible) ❯ " % envname))
+        except Exception: k = ""
+    return k.strip()
 
 # ------------------------------------------------------ arrow-key menu (TTY) --
 def _numbered_pick(title, rows):
@@ -1020,15 +1033,14 @@ def first_run_setup():
     if sel is None: return None
     target = names[sel]; pv = PROVIDERS[target]
     if not (os.environ.get(pv["env"]) or _saved_key(target)):
-        import getpass
         print(dim("  get a key at: ") + orange(_provider_url(target)))
-        print(dim("  paste your %s and press Enter (input stays hidden):" % pv["env"]))
-        try: key = getpass.getpass("  " + orange("key❯ "))
-        except Exception: key = ""
-        if not key.strip():
+        key = _ask_key(pv["env"])
+        if not key:
             print(dim("  no key entered.")); return None
-        save_config({"provider": target, "key": key.strip(), "model": pv["model"]})
-        print(green("  ✓ saved to ~/.vanta-code/config.json — change anytime with /provider or /key"))
+        save_config({"provider": target, "key": key, "model": pv["model"]})
+        ok = _saved_key(target) == key
+        print(green("  ✓ saved to ~/.vanta-code/config.json — change anytime with /provider or /key") if ok
+              else red("  ⚠ could not save the key to ~/.vanta-code/config.json (check permissions)"))
     else:
         save_config({"provider": target})
     return make_cfg(target, file_config())
@@ -1046,14 +1058,12 @@ def do_provider_menu(cfg):
         print(dim("  (cancelled)")); return cfg
     target = keys[sel]; pv = PROVIDERS[target]
     if not (os.environ.get(pv["env"]) or _saved_key(target)):
-        import getpass
-        print(dim("  paste your %s and press Enter (input hidden), blank to cancel:" % pv["env"]))
-        try: key = getpass.getpass("  " + orange("key❯ "))
-        except Exception: key = ""
-        if not key.strip():
+        key = _ask_key(pv["env"])
+        if not key:
             print(dim("  (no key entered)")); return cfg
-        save_config({"provider": target, "key": key.strip(), "model": pv["model"]})
-        print(green("  ✓ saved your %s to ~/.vanta-code/config.json (chmod 600)") % target)
+        save_config({"provider": target, "key": key, "model": pv["model"]})
+        print(green("  ✓ saved your %s key" % target) if _saved_key(target) == key
+              else red("  ⚠ could not save the key (check ~/.vanta-code permissions)"))
     else:
         save_config({"provider": target})
     nc = make_cfg(target, file_config(), use_env_model=False)
@@ -1175,13 +1185,12 @@ def main():
                 if s: history[:] = s; print(dim("  resumed %d messages from your last session." % len(s)))
                 else: print(dim("  no saved session found."))
             elif name == "key":
-                import getpass
                 pv = PROVIDERS[cfg["provider"]]
-                try: k = getpass.getpass("  " + orange("paste %s ❯ " % pv["env"]))
-                except Exception: k = ""
-                if k.strip():
-                    save_config({"provider": cfg["provider"], "key": k.strip()}); cfg["key"] = k.strip()
-                    print(green("  ✓ key saved for " + cfg["provider"] + "."))
+                k = _ask_key(pv["env"])
+                if k:
+                    save_config({"provider": cfg["provider"], "key": k}); cfg["key"] = k
+                    print(green("  ✓ key saved for " + cfg["provider"]) if _saved_key(cfg["provider"]) == k
+                          else red("  ⚠ could not save the key (check ~/.vanta-code permissions)"))
                 else: print(dim("  (cancelled)"))
             elif name == "auto": AUTO["on"] = not AUTO["on"]; print(dim("  auto-approve %s." % ("on" if AUTO["on"] else "off")))
             elif name in ("themes", "theme"): do_theme_menu(cfg)
