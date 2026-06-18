@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "2.1"
+VERSION = "2.2"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -116,6 +116,7 @@ SYSTEM = """You are Vanta Code, a focused terminal coding agent that specializes
 - Every block (`if`, `for each`, `while`, `to`) closes with `end`. There are no curly-brace code blocks and no semicolons. `times` is reserved - don't use it as a variable.
 
 # How to work
+- FINISH THE JOB IN ONE TURN. When asked to build something, do the WHOLE task now: make the folder AND write every file with its full contents AND launch it — all in this one turn, using as many tool calls as it takes. Do NOT stop after announcing a plan, and do NOT stop after just make_dir. Never end your turn with the work half-done and never ask the user to say "continue" — only stop when the app is actually written and runnable (or you truly need a decision from the user). After a make_dir your very next action must be write_file for the real code.
 - You have FULL ACCESS to this computer. You can create folders ANYWHERE (make_dir), read/write/move/delete any file, and run any shell command (bash). You are NOT limited to the current directory - use absolute paths (e.g. ~/projects/foo/app.va, /Users/.../). Coding Vanta works in any location.
 - Your main job is BUILDING FROM SCRATCH. When the user asks you to make / build / create / write / code an app or program, WRITE it yourself with write_file - produce complete, original, working Vanta code. Do NOT reuse, copy, or just run a file that already exists, and do NOT go hunting for an existing .va to run. "Make a tip calculator" means write brand-new .va code for one - never run ~/tipjar.va or anything pre-made unless the user EXPLICITLY says "run the existing X".
 - For a new project, MAKE A DEDICATED FOLDER for it (make_dir, e.g. ~/vanta/<name>/) and put the .va plus any assets inside, unless the user says where. Then launch it so the user sees it: a visual/web app -> run_app (pops a movable window); a plain script -> run_vanta (console output). Read any error, fix the .va, and re-run until it works.
@@ -549,7 +550,7 @@ def to_openai_msgs(history):
 def call_llm(cfg, history):
     """Return a normalized assistant message: {content:[blocks], stop:'tool'|'end'}."""
     if cfg["kind"] == "anthropic":
-        payload = {"model": cfg["model"], "max_tokens": 4096, "system": SYSTEM + _CTX["text"],
+        payload = {"model": cfg["model"], "max_tokens": 8192, "system": SYSTEM + _CTX["text"],
                    "messages": history, "tools": TOOLS}
         headers = {"x-api-key": cfg["key"], "anthropic-version": "2023-06-01",
                    "content-type": "application/json"}
@@ -563,7 +564,7 @@ def call_llm(cfg, history):
         oai_tools = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
                       "parameters": t["input_schema"]}} for t in TOOLS]
         msgs = [{"role": "system", "content": SYSTEM + _CTX["text"]}] + to_openai_msgs(history)
-        payload = {"model": cfg["model"], "max_tokens": 4096, "messages": msgs,
+        payload = {"model": cfg["model"], "max_tokens": 8192, "messages": msgs,
                    "tools": oai_tools, "tool_choice": "auto"}
         headers = {"Authorization": "Bearer " + cfg["key"], "content-type": "application/json",
                    "HTTP-Referer": "https://github.com/Juanshep1/vanbrew", "X-Title": "Vanta Code"}
