@@ -43,12 +43,16 @@
     ]
   },
   "vself": {
-    "version": "0.2",
-    "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta; runs lists/maps/for-each/recursion and even its own source (self-hosting)",
-    "deps": [
-      "vanta"
-    ],
+    "version": "1.0",
+    "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta, shipped as NATIVE C so it runs with ZERO Python (just cc to build). vself prog.va runs functions/recursion/lists/maps/file I/O, and even runs the vc compiler itself.",
     "files": [
+      {
+        "source": {
+          "kind": "url",
+          "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vself/vanta.va.c"
+        },
+        "as": "vanta.va.c"
+      },
       {
         "source": {
           "kind": "url",
@@ -60,18 +64,22 @@
     "bin": [
       {
         "name": "vself",
-        "kind": "vanta",
-        "main": "vanta.va"
+        "kind": "cc",
+        "main": "vanta.va.c"
       }
     ]
   },
   "vc": {
-    "version": "0.5",
-    "summary": "vc - a self-hosting Vanta-to-C compiler (in Vanta) with a full C runtime: compiles serve()/sockets/HTTP/JSON/filesystem + an Ebb garbage collector - even V-NOx (the OS) and itself - to NATIVE, Python-free binaries with bounded memory (needs cc)",
-    "deps": [
-      "vanta"
-    ],
+    "version": "1.0",
+    "summary": "vc - a self-hosting Vanta-to-C compiler (in Vanta), shipped as NATIVE C so the compiler itself runs with ZERO Python (just cc to build it, then vc prog.va -> a native binary). Compiles strings/lists/maps/serve()/HTTP/JSON/filesystem + an Ebb GC - even itself and the interpreter.",
     "files": [
+      {
+        "source": {
+          "kind": "url",
+          "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vc/vc.va.c"
+        },
+        "as": "vc.va.c"
+      },
       {
         "source": {
           "kind": "url",
@@ -83,8 +91,8 @@
     "bin": [
       {
         "name": "vc",
-        "kind": "vanta",
-        "main": "vc.va"
+        "kind": "cc",
+        "main": "vc.va.c"
       }
     ]
   },

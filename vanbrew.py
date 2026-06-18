@@ -71,18 +71,18 @@ BUILTIN = {
         "bin": [{"name": "vnox", "kind": "vanta", "main": "vnox.va"}],
     },
     "vself": {
-        "version": "0.2",
-        "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta; runs lists/maps/for-each/recursion and even its own source (self-hosting)",
-        "deps": ["vanta"],
-        "files": [{"source": _u("/packages/vself/vanta.va"), "as": "vanta.va"}],
-        "bin": [{"name": "vself", "kind": "vanta", "main": "vanta.va"}],
+        "version": "1.0",
+        "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta, shipped as NATIVE C so it runs with ZERO Python (just cc to build). `vself prog.va` runs functions/recursion/lists/maps/file I/O, and even runs the vc compiler itself.",
+        "files": [{"source": _u("/packages/vself/vanta.va.c"), "as": "vanta.va.c"},
+                  {"source": _u("/packages/vself/vanta.va"), "as": "vanta.va"}],
+        "bin": [{"name": "vself", "kind": "cc", "main": "vanta.va.c"}],
     },
     "vc": {
-        "version": "0.5",
-        "summary": "vc - a self-hosting Vanta-to-C compiler (in Vanta) with a full C runtime: compiles serve()/sockets/HTTP/JSON/filesystem + an Ebb garbage collector - even V-NOx (the OS) and itself - to NATIVE, Python-free binaries with bounded memory (needs cc)",
-        "deps": ["vanta"],
-        "files": [{"source": _u("/packages/vc/vc.va"), "as": "vc.va"}],
-        "bin": [{"name": "vc", "kind": "vanta", "main": "vc.va"}],
+        "version": "1.0",
+        "summary": "vc - a self-hosting Vanta-to-C compiler (in Vanta), shipped as NATIVE C so the compiler itself runs with ZERO Python (just cc to build it, then `vc prog.va` -> a native binary). Compiles strings/lists/maps/serve()/HTTP/JSON/filesystem + an Ebb GC - even itself and the interpreter.",
+        "files": [{"source": _u("/packages/vc/vc.va.c"), "as": "vc.va.c"},
+                  {"source": _u("/packages/vc/vc.va"), "as": "vc.va"}],
+        "bin": [{"name": "vc", "kind": "cc", "main": "vc.va.c"}],
     },
     "topdeck": {
         "version": "1.0",
@@ -245,6 +245,25 @@ def shim_command(entry, celldir, state):
         return "%s %s %s" % (python_exe(), quote(vanta_main), quote(main))
     if kind == "shell":
         return "sh %s" % quote(main)
+    if kind == "cc":
+        # compile the shipped C source to a native binary at install time.
+        # Needs only a C compiler - NO Python. This is how Vanta ships Python-free.
+        celld = os.path.dirname(main)
+        out = os.path.join(celld, entry["name"])
+        stale = (not os.path.exists(out)) or os.path.getmtime(out) < os.path.getmtime(main)
+        if stale:
+            cc = which("cc") or which("clang") or which("gcc")
+            if not cc:
+                die("'%s' needs a C compiler (cc/clang/gcc). On macOS: xcode-select --install"
+                    % entry["name"])
+            rc = os.system("%s -O2 -w %s -o %s" % (cc, quote(main), quote(out)))
+            if rc != 0 or not os.path.exists(out):
+                die("failed to compile %s with cc" % entry["main"])
+        try:
+            os.chmod(out, 0o755)
+        except OSError:
+            pass
+        return quote(out)
     # exec: the file itself is runnable
     try:
         os.chmod(main, os.stat(main).st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)

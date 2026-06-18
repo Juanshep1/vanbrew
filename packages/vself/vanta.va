@@ -574,7 +574,58 @@ to call_builtin(name, args)
         give back {"hit": yes, "v": read_file(args[0])}
     end
     if name is "arguments"
-        give back {"hit": yes, "v": arguments()}
+        give back {"hit": yes, "v": SUBARGS}
+    end
+    if name is "write_file"
+        give back {"hit": yes, "v": write_file(args[0], args[1])}
+    end
+    if name is "append_file"
+        give back {"hit": yes, "v": append_file(args[0], args[1])}
+    end
+    if name is "base64_decode"
+        give back {"hit": yes, "v": base64_decode(args[0])}
+    end
+    if name is "shell"
+        give back {"hit": yes, "v": shell(args[0])}
+    end
+    if name is "run"
+        give back {"hit": yes, "v": run(args[0])}
+    end
+    if name is "to_json"
+        give back {"hit": yes, "v": to_json(args[0])}
+    end
+    if name is "from_json"
+        give back {"hit": yes, "v": from_json(args[0])}
+    end
+    if name is "starts_with"
+        give back {"hit": yes, "v": starts_with(args[0], args[1])}
+    end
+    if name is "ends_with"
+        give back {"hit": yes, "v": ends_with(args[0], args[1])}
+    end
+    if name is "find"
+        give back {"hit": yes, "v": find(args[0], args[1])}
+    end
+    if name is "path_exists"
+        give back {"hit": yes, "v": path_exists(args[0])}
+    end
+    if name is "make_dir"
+        give back {"hit": yes, "v": make_dir(args[0])}
+    end
+    if name is "list_dir"
+        give back {"hit": yes, "v": list_dir(args[0])}
+    end
+    if name is "http_get"
+        give back {"hit": yes, "v": http_get(args[0])}
+    end
+    if name is "now"
+        give back {"hit": yes, "v": now()}
+    end
+    if name is "today"
+        give back {"hit": yes, "v": today()}
+    end
+    if name is "clock"
+        give back {"hit": yes, "v": clock()}
     end
     if name is "fail"
         fail(args[0])
@@ -719,6 +770,10 @@ end
 let DEMO be "# a program run by Vanta-in-Vanta\nlet x be 5\nlet y be 3\nsay \"x + y = \" + text(x + y)\nif x is over y\n    say \"x is bigger\"\notherwise\n    say \"y is bigger\"\nend\nto fib(n)\n    if n is under 2\n        give back n\n    end\n    give back fib(n - 1) + fib(n - 2)\nend\nsay \"fib(10) = \" + text(fib(10))\nlet nums be [4, 1, 3, 1, 5, 9, 2, 6]\nlet total be 0\nfor each n in nums\n    change total to total + n\nend\nsay \"sum \" + text(nums) + \" = \" + text(total)\nsay \"sorted = \" + text(sort(nums))\nlet who be {{\"name\": \"Ada\", \"lang\": \"Vanta\"}}\nsay who[\"name\"] + \" writes \" + who[\"lang\"]\nlet shout be \"\"\nfor each w in [\"self\", \"hosting\", \"works\"]\n    change shout to shout + uppercase(w) + \" \"\nend\nsay trim(shout)\n"
 
 let args be arguments()
+let SUBARGS be []
+if length(args) is over 1
+    change SUBARGS to slice(args, 1, length(args))
+end
 if length(args) is over 0
     vrun(read_file(args[0]))
 otherwise
