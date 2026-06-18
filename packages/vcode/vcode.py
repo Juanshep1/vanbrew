@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "2.0"
+VERSION = "2.1"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -92,7 +92,7 @@ class Spinner(object):
             el = int(time.time() - self.t0)
             frame = BRAILLE[i % len(BRAILLE)]
             line = "%s %s%s %s" % (orange(frame), orange(self.word + "…"),
-                                   dim(" (%ss" % el), dim("· esc to interrupt)"))
+                                   dim(" (%ss" % el), dim("· ctrl-c to interrupt)"))
             sys.stdout.write("\r\033[K" + line); sys.stdout.flush()
             time.sleep(0.08); i += 1
     def stop(self):
@@ -243,21 +243,18 @@ def find_vanta():
     return None
 
 AUTO = {"on": False}  # session auto-approve toggle
-_WATCH = [None]       # the active EscWatch during a turn (so prompts can pause it)
 
 def _confirm(action):
     if AUTO["on"]: return True
-    w = _WATCH[0]
-    if w: w.suspend()                 # restore echo + normal input for the prompt
     ans = ""
     try:
         sys.stdout.write("\n  %s %s " % (orange("Proceed?"), dim("(y / N / a=always)")))
         sys.stdout.flush()
         ans = sys.stdin.readline().strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print(); return False
     except Exception:
         ans = ""
-    finally:
-        if w: w.resume()
     if ans == "a": AUTO["on"] = True; return True
     return ans in ("y", "yes")
 
@@ -662,74 +659,42 @@ def compact_history(cfg, history):
     print("  " + dim("↻ compacted earlier conversation to save context"))
     return [{"role": "user", "content": "[Summary of our earlier conversation]\n" + text}]
 
-class EscWatch(object):
-    """Watches stdin for Esc during a turn (raw, no-echo). Can be SUSPENDED so a
-    confirmation prompt can read input normally (with echo)."""
-    def __init__(self): self.stop = False; self.aborted = False; self.t = None; self.fd = None; self.old = None
-    def _raw(self):
-        import termios
-        self.fd = sys.stdin.fileno(); self.old = termios.tcgetattr(self.fd)
-        nw = termios.tcgetattr(self.fd); nw[3] = nw[3] & ~(termios.ICANON | termios.ECHO)
-        termios.tcsetattr(self.fd, termios.TCSANOW, nw)
-    def _cook(self):
-        if self.old is not None and self.fd is not None:
-            try:
-                import termios; termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old)
-            except Exception: pass
-    def _spawn(self):
-        self.stop = False
-        def run():
-            import select
-            while not self.stop:
-                try:
-                    r, _, _ = select.select([self.fd], [], [], 0.1)
-                    if r and os.read(self.fd, 1) == b"\x1b": self.aborted = True
-                except Exception:
-                    break
-        self.t = threading.Thread(target=run); self.t.daemon = True; self.t.start()
-    def start(self):
-        if not sys.stdin.isatty(): return self
-        try: self._raw()
-        except Exception: self.old = None; return self
-        self._spawn(); return self
-    def suspend(self):                # stop watching + restore the normal terminal (echo on)
-        if self.t: self.stop = True; self.t.join(0.3); self.t = None
-        self._cook()
-    def resume(self):                 # back to raw watching
-        if self.old is None or not sys.stdin.isatty(): return
-        try: self._raw()
-        except Exception: return
-        self._spawn()
-    def done(self):
-        if self.t: self.stop = True; self.t.join(0.3); self.t = None
-        self._cook(); return self.aborted
-
 def _call_worker(cfg, history, box):
     try: box["r"] = call_llm(cfg, history)
     except Exception as e: box["e"] = e
 
-def _ensure_assistant(history):
-    # keep roles alternating after an interrupt so the next call stays valid
-    if history and history[-1].get("role") != "assistant":
-        history.append({"role": "assistant", "content": [{"type": "text", "text": "(interrupted)"}]})
+def _finalize_interrupt(history):
+    # after a Ctrl-C, leave history in a valid (alternating, tool-results-present) state
+    if not history: return
+    last = history[-1]
+    if last.get("role") == "assistant":
+        content = last.get("content")
+        if isinstance(content, list):
+            ids = [b.get("id") for b in content
+                   if isinstance(b, dict) and b.get("type") == "tool_use"]
+            if ids:   # tool calls left without results -> satisfy them
+                history.append({"role": "user", "content":
+                    [{"type": "tool_result", "tool_use_id": i, "content": "(interrupted)"} for i in ids]})
+        return
+    history.append({"role": "assistant", "content": [{"type": "text", "text": "(interrupted)"}]})
 
 def agent_turn(cfg, history, user_text):
     if history_size(history) > COMPACT_AT:        # auto-compact long sessions
         history[:] = compact_history(cfg, history)
     history.append({"role": "user", "content": user_text})
     SESSION["turns"] += 1
-    w = EscWatch().start(); _WATCH[0] = w
+    # The LLM call runs in a worker thread while the main thread animates the
+    # spinner and stays responsive to Ctrl-C (a signal — reliable regardless of
+    # terminal mode or threads, unlike the old raw-stdin Esc watcher).
     try:
         for _ in range(60):
             sp = Spinner(SPIN_WORDS[int(time.time()) % len(SPIN_WORDS)]).start()
             box = {}
             th = threading.Thread(target=_call_worker, args=(cfg, history, box)); th.daemon = True; th.start()
-            while th.is_alive():
-                if w.aborted: break
-                th.join(0.08)
-            sp.stop()
-            if w.aborted:
-                _ensure_assistant(history); print(dim("  ⎚ interrupted (Esc)")); return
+            try:
+                while th.is_alive(): th.join(0.1)
+            finally:
+                sp.stop()
             if "e" in box:
                 print(red("⏺ " + str(box["e"]))); return
             resp = box.get("r")
@@ -740,20 +705,16 @@ def agent_turn(cfg, history, user_text):
                 if b["type"] == "text" and b["text"].strip():
                     print_assistant(b["text"])
                 elif b["type"] == "tool_use":
-                    if w.aborted:
-                        results.append({"type": "tool_result", "tool_use_id": b["id"], "content": "(interrupted)"})
-                    else:
-                        out = run_tool(b["name"], b.get("input", {}))
-                        results.append({"type": "tool_result", "tool_use_id": b["id"], "content": out})
+                    out = run_tool(b["name"], b.get("input", {}))
+                    results.append({"type": "tool_result", "tool_use_id": b["id"], "content": out})
             tool_uses = any(b["type"] == "tool_use" for b in resp["content"])
             if tool_uses: history.append({"role": "user", "content": results})
-            if w.aborted:
-                _ensure_assistant(history); print(dim("  ⎚ interrupted (Esc)")); return
             if resp["stop"] != "tool" or not tool_uses:
                 return
         print(dim("  (stopped after too many steps)"))
-    finally:
-        w.done(); _WATCH[0] = None
+    except KeyboardInterrupt:
+        _finalize_interrupt(history)
+        print(dim("\n  ⎚ interrupted"))
 
 # ----------------------------------------------------------------- ui --------
 def box(lines, width=None):
@@ -797,7 +758,7 @@ HELP = """  Commands:
     /exit, /quit     leave
 
   Shortcuts:
-    Esc              interrupt the agent while it's working
+    Ctrl-C           interrupt the agent while it's working (back to the prompt)
     Tab              complete a /command or an @file path
     \"\"\"              start a multi-line message (end with \"\"\" on its own line)
     !<command>       run a shell command directly (e.g. !ls, !git status)
@@ -1216,8 +1177,10 @@ def main():
     while True:
         try:
             line = prompt_input().strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\n" + dim("  bye.")); return
+        except EOFError:
+            print("\n" + dim("  bye.")); return            # Ctrl-D exits
+        except KeyboardInterrupt:
+            print(dim("  (use Ctrl-D to exit)")); continue  # Ctrl-C just clears the line
         if not line:
             continue
         if line == '"""':                              # paste a multi-line block until the next """
