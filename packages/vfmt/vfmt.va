@@ -1,0 +1,78 @@
+# vfmt - the Vanta auto-formatter. Re-indents a .va file to 4 spaces per block,
+# preserving comments and string contents (it only fixes leading whitespace).
+to is_opener(s)
+    if starts_with(s, "to ") is yes
+        give back yes
+    end
+    if starts_with(s, "if ") is yes
+        give back yes
+    end
+    if starts_with(s, "while ") is yes
+        give back yes
+    end
+    if starts_with(s, "for each ") is yes
+        give back yes
+    end
+    if starts_with(s, "repeat ") is yes
+        give back yes
+    end
+    give back no
+end
+
+to is_end(s)
+    if s is "end"
+        give back yes
+    end
+    give back starts_with(s, "end ")
+end
+
+to pad(n)
+    let out be ""
+    let i be 0
+    while i is under n
+        change out to out + "    "
+        change i to i + 1
+    end
+    give back out
+end
+
+to format(src)
+    let depth be 0
+    let out be []
+    for each raw in split(src, "\n")
+        let s be trim(raw)
+        if s is ""
+            add "" to out
+        otherwise
+            let here be depth
+            if is_end(s) is yes
+                change here to here - 1
+                change depth to depth - 1
+            end
+            if starts_with(s, "otherwise") is yes
+                change here to here - 1
+            end
+            if here is under 0
+                change here to 0
+            end
+            add pad(here) + s to out
+            if is_opener(s) is yes
+                change depth to depth + 1
+            end
+        end
+    end
+    give back join(out, "\n")
+end
+
+let args be arguments()
+if length(args) is over 0
+    let formatted be format(read_file(args[0]))
+    if length(args) is over 1 and args[1] is "-w"
+        write_file(args[0], formatted)
+        say "formatted " + args[0]
+    otherwise
+        say formatted
+    end
+otherwise
+    say "usage: vfmt <file.va> [-w]   (-w writes in place)"
+end

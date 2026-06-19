@@ -1,0 +1,43 @@
+# A package registry for the Vanta ecosystem - served by a native Vanta binary.
+let packages be []
+add {"name": "vanta", "version": "4.4", "summary": "The plain-English language + interpreter"} to packages
+add {"name": "vc", "version": "1.3", "summary": "Self-hosting Vanta-to-C compiler (native, no Python)"} to packages
+add {"name": "vself", "version": "1.2", "summary": "Native Vanta interpreter - runs scripts AND web servers"} to packages
+add {"name": "vnox", "version": "1.0", "summary": "The first operating system written in Vanta"} to packages
+add {"name": "vcode", "version": "2.3", "summary": "A Claude Code-style coding agent for Vanta"} to packages
+add {"name": "vfmt", "version": "1.0", "summary": "The Vanta auto-formatter (like gofmt)"} to packages
+
+to find_pkg(name)
+    for each p in packages
+        if p["name"] is name
+            give back p
+        end
+    end
+    give back nothing
+end
+
+to page()
+    let rows be ""
+    for each p in packages
+        change rows to rows + "<tr><td class='n'>" + p["name"] + "</td><td class='v'>" + p["version"] + "</td><td>" + p["summary"] + "</td><td class='c'>vanbrew install " + p["name"] + "</td></tr>"
+    end
+    let css be "body{{font:16px ui-monospace,Menlo,monospace;background:#0e1020;color:#e6e9f5;margin:0;padding:48px}}h1{{font-size:34px;margin:0 0 4px;color:#7cf0c8}}.sub{{color:#8a93b8;margin-bottom:32px}}table{{border-collapse:collapse;width:100%;max-width:900px}}td{{padding:12px 16px;border-bottom:1px solid #20243f}}.n{{color:#ffd479;font-weight:700}}.v{{color:#8a93b8}}.c{{color:#6cb0ff}}tr:hover td{{background:#161a30}}"
+    give back "<!doctype html><html><head><meta charset='utf-8'><title>Vanta Registry</title><style>" + css + "</style></head><body><h1>The Vanta Registry</h1><div class='sub'>" + text(length(packages)) + " packages, served by a native Vanta binary (no Python). API: <code>/api/packages</code></div><table>" + rows + "</table></body></html>"
+end
+
+to handle(req)
+    let path be req["path"]
+    if path is "/api/packages"
+        give back {"status": 200, "body": packages, "type": "application/json"}
+    end
+    if starts_with(path, "/api/package/")
+        let name be slice(path, 13, length(path))
+        let p be find_pkg(name)
+        if p is nothing
+            give back {"status": 404, "body": {"error": "no such package: " + name}, "type": "application/json"}
+        end
+        give back {"status": 200, "body": p, "type": "application/json"}
+    end
+    give back page()
+end
+serve(8077, handle)

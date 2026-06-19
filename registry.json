@@ -43,7 +43,7 @@
     ]
   },
   "vself": {
-    "version": "1.2",
+    "version": "1.3",
     "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta, shipped as NATIVE C so it runs with ZERO Python (just cc to build). vself prog.va runs functions/recursion/lists/maps/file I/O, and even runs web servers (serve()) and the vc compiler itself.",
     "files": [
       {
@@ -70,7 +70,7 @@
     ]
   },
   "vc": {
-    "version": "1.3",
+    "version": "1.4",
     "summary": "vc - a self-hosting Vanta-to-C compiler (in Vanta), shipped as NATIVE C so the compiler itself runs with ZERO Python (just cc to build it, then vc prog.va -> a native binary). Compiles strings/lists/maps/serve()/HTTP/JSON/filesystem + an Ebb GC - even itself and the interpreter.",
     "files": [
       {
@@ -190,6 +190,33 @@
         "name": "vanta-code",
         "kind": "python",
         "main": "vcode.py"
+      }
+    ]
+  },
+  "vfmt": {
+    "version": "1.0",
+    "summary": "vfmt - the Vanta auto-formatter (like gofmt): re-indents .va files to 4 spaces per block, preserving comments. Native binary, no Python. Usage: vfmt file.va [-w]",
+    "files": [
+      {
+        "source": {
+          "kind": "url",
+          "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vfmt/vfmt.va.c"
+        },
+        "as": "vfmt.va.c"
+      },
+      {
+        "source": {
+          "kind": "url",
+          "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/vfmt/vfmt.va"
+        },
+        "as": "vfmt.va"
+      }
+    ],
+    "bin": [
+      {
+        "name": "vfmt",
+        "kind": "cc",
+        "main": "vfmt.va.c"
       }
     ]
   }

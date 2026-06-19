@@ -71,18 +71,25 @@ BUILTIN = {
         "bin": [{"name": "vnox", "kind": "vanta", "main": "vnox.va"}],
     },
     "vself": {
-        "version": "1.2",
+        "version": "1.3",
         "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta, shipped as NATIVE C so it runs with ZERO Python (just cc to build). `vself prog.va` runs functions/recursion/lists/maps/file I/O, and even runs web servers (serve()) and the vc compiler itself.",
         "files": [{"source": _u("/packages/vself/vanta.va.c"), "as": "vanta.va.c"},
                   {"source": _u("/packages/vself/vanta.va"), "as": "vanta.va"}],
         "bin": [{"name": "vself", "kind": "cc", "main": "vanta.va.c"}],
     },
     "vc": {
-        "version": "1.3",
+        "version": "1.4",
         "summary": "vc - a self-hosting Vanta-to-C compiler (in Vanta), shipped as NATIVE C so the compiler itself runs with ZERO Python (just cc to build it, then `vc prog.va` -> a native binary). Compiles strings/lists/maps/serve()/HTTP/JSON/filesystem + an Ebb GC - even itself and the interpreter.",
         "files": [{"source": _u("/packages/vc/vc.va.c"), "as": "vc.va.c"},
                   {"source": _u("/packages/vc/vc.va"), "as": "vc.va"}],
         "bin": [{"name": "vc", "kind": "cc", "main": "vc.va.c"}],
+    },
+    "vfmt": {
+        "version": "1.0",
+        "summary": "vfmt - the Vanta auto-formatter (like gofmt): re-indents .va files to 4 spaces per block, preserving comments. Native binary, no Python. Usage: vfmt file.va [-w]",
+        "files": [{"source": _u("/packages/vfmt/vfmt.va.c"), "as": "vfmt.va.c"},
+                  {"source": _u("/packages/vfmt/vfmt.va"), "as": "vfmt.va"}],
+        "bin": [{"name": "vfmt", "kind": "cc", "main": "vfmt.va.c"}],
     },
     "topdeck": {
         "version": "1.0",
