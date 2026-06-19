@@ -1,0 +1,11 @@
+name: linux-smoke
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  native-vanta-on-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build vc + vself with gcc and run the smoke test (no Python)
+        run: bash test/linux-smoke.sh

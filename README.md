@@ -45,8 +45,8 @@ Everything lives under `~/.vanbrew` (`bin/` shims, `cellar/` versioned installs,
 | --- | --- |
 | `vanta` | the Vanta plain-English language + interpreter (**4.4** — a full web stack: `serve`, an HTTP client with gzip/charset decoding, filesystem, JSON, and `run_vanta` for running Vanta in-process) |
 | `vnox` | **V-NOx 1 — the first OS written in Vanta.** A whole desktop environment served by one Vanta program on port 8100 — window manager, virtual filesystem, Vanta Studio, Files, Terminal, Settings, Calculator, and a real **web browser** (searches and reads live sites through a Vanta proxy, multi-tab with back/forward, and opens logins/video in Firefox). |
-| `vself` | a Vanta interpreter **written in Vanta** — self-hosting; runs lists/maps/recursion and even its own source |
-| `vc` | a self-hosting **Vanta→C compiler** — compiles Vanta (even V-NOx, and itself) to native, Python-free binaries, with a garbage collector |
+| `vself` | a Vanta interpreter **written in Vanta**, shipped as **native C** — runs with **zero Python** (just `cc` to build). Runs scripts *and* web servers (`serve()`), and even runs the `vc` compiler itself. |
+| `vc` | a self-hosting **Vanta→C compiler**, shipped as **native C** — the compiler itself runs with **zero Python**; `vc prog.va` → a native binary. Compiles strings/lists/maps/`serve()`/HTTP/JSON/filesystem (even V-NOx, and itself), with a garbage collector. |
 | `topdeck` | Yu-Gi-Oh! Master Duel meta analyzer (Vanta web app, port 8090) |
 | `vaeldric` | Vaeldric conlang site + JSON API (Vanta web app, port 8080) |
 | `vcode` | **a terminal coding agent that speaks Vanta** (run it with `vcode`) — Claude Code-style UI, bring your own API key |
@@ -93,9 +93,28 @@ A "formula" is just JSON. Two ways to add one:
 **Bin kinds:** `python` (run with python), `vanta` (run with vanta), `shell`
 (run with sh), `exec` (the file is itself executable).
 
+## Native, Python-free Vanta (macOS + Linux)
+
+`vc` and `vself` install as **native binaries** — Vanbrew compiles the shipped C
+with `cc` at install time, so once built they need **no Python at all**:
+
+```sh
+vanbrew install vc vself
+vself app.va     # interpret a script — or a web server (serve()) — zero Python
+vc app.va        # compile to a native binary and run it — zero Python
+```
+
+This is the bootstrap finish line: `vc` compiles **itself**, builds `vself`, and
+`vself` runs real programs (and the compiler). The runtime is plain POSIX C, so
+it builds on **Linux** as well as macOS — verified on every push by the
+[`linux-smoke`](.github/workflows/linux-smoke.yml) CI (`bash test/linux-smoke.sh`:
+build `vc`+`vself` with gcc, interpret a script, compile+run one, serve HTTP, and
+confirm the binaries link only against libc — no Python).
+
 ## Notes
 
-* Requires Python (2.7+/3.x) and, for downloads, internet + `curl`/`wget`.
+* Vanbrew itself requires Python (2.7+/3.x) to run, plus `curl`/`wget` for
+  downloads. The **packages it installs need not** — `vc`/`vself` are native.
 * The installer adds `~/.vanbrew/bin` to your `PATH` via a clearly-marked block
   in your shell profile (`# >>> vanbrew >>>`). Remove it to undo.
 * Fork it: set `VANBREW_RAW` to your own raw GitHub base and the catalog points

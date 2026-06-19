@@ -1204,7 +1204,11 @@ Value v_build_and_run(Value v_src, Value v_base) {
     }
     SAY(ADD(ADD(STR("compiled -> "), v_exe), STR(" (a native binary, no Python)")));
     SAY(STR("----"));
-    SAY(B_run(v_exe));
+    Value v_runcmd = v_exe;
+    if (truthy(EQ(B_starts_with(v_exe, STR("/")), BOOLV(0)))) {
+        v_runcmd = ADD(STR("./"), v_exe);
+    }
+    SAY(B_run(v_runcmd));
     return NIL();
 }
 

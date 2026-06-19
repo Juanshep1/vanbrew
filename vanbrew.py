@@ -78,7 +78,7 @@ BUILTIN = {
         "bin": [{"name": "vself", "kind": "cc", "main": "vanta.va.c"}],
     },
     "vc": {
-        "version": "1.2",
+        "version": "1.3",
         "summary": "vc - a self-hosting Vanta-to-C compiler (in Vanta), shipped as NATIVE C so the compiler itself runs with ZERO Python (just cc to build it, then `vc prog.va` -> a native binary). Compiles strings/lists/maps/serve()/HTTP/JSON/filesystem + an Ebb GC - even itself and the interpreter.",
         "files": [{"source": _u("/packages/vc/vc.va.c"), "as": "vc.va.c"},
                   {"source": _u("/packages/vc/vc.va"), "as": "vc.va"}],

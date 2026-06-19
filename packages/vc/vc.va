@@ -902,7 +902,11 @@ to build_and_run(src, base)
     end
     say "compiled -> " + exe + " (a native binary, no Python)"
     say "----"
-    say run(exe)
+    let runcmd be exe
+    if starts_with(exe, "/") is no
+        change runcmd to "./" + exe
+    end
+    say run(runcmd)
 end
 
 to compile_only(src, base)
