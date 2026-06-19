@@ -43,8 +43,8 @@
     ]
   },
   "vself": {
-    "version": "1.1",
-    "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta, shipped as NATIVE C so it runs with ZERO Python (just cc to build). vself prog.va runs functions/recursion/lists/maps/file I/O, and even runs the vc compiler itself.",
+    "version": "1.2",
+    "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta, shipped as NATIVE C so it runs with ZERO Python (just cc to build). vself prog.va runs functions/recursion/lists/maps/file I/O, and even runs web servers (serve()) and the vc compiler itself.",
     "files": [
       {
         "source": {
@@ -70,7 +70,7 @@
     ]
   },
   "vc": {
-    "version": "1.1",
+    "version": "1.2",
     "summary": "vc - a self-hosting Vanta-to-C compiler (in Vanta), shipped as NATIVE C so the compiler itself runs with ZERO Python (just cc to build it, then vc prog.va -> a native binary). Compiles strings/lists/maps/serve()/HTTP/JSON/filesystem + an Ebb GC - even itself and the interpreter.",
     "files": [
       {

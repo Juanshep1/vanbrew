@@ -143,6 +143,10 @@ static Value B_http_get(Value url, Value headers){ char cmd[16384]; int n=snprin
 static Value parse_query(const char* q){ Value m=MAP0(); if(!q||!*q)return m; char* s=sdup(q); char* p=s; while(p&&*p){ char* amp=strchr(p,'&'); if(amp)*amp=0; char* eq=strchr(p,'='); if(eq){*eq=0; Value k=B_url_decode(STR(p)); Value v=B_url_decode(STR(eq+1)); mapset(m,k,v);} p=amp?amp+1:0; } free(s); return m; }
 static char* recv_request(int c,long* blen){ long cap=8192,len=0; char* buf=malloc(cap); for(;;){ if(len+4096>=cap){cap*=2;buf=realloc(buf,cap);} long r=recv(c,buf+len,4096,0); if(r<=0)break; len+=r; buf[len]=0; char* he=strstr(buf,"\r\n\r\n"); if(he){ long hlen=he-buf+4; char* cl=strcasestr(buf,"content-length:"); long want=cl?atol(cl+15):0; while((long)(len-hlen)<want){ if(len+4096>=cap){cap*=2;buf=realloc(buf,cap);} long r2=recv(c,buf+len,4096,0); if(r2<=0)break; len+=r2; } buf[len]=0; break; } } *blen=len; return buf; }
 static Value parse_request(char* raw){ Value req=MAP0(); char* nl=strstr(raw,"\r\n"); if(!nl)return req; *nl=0; char* method=raw; char* sp=strchr(raw,' '); if(!sp)return req; *sp=0; char* target=sp+1; char* sp2=strchr(target,' '); if(sp2)*sp2=0; char* q=strchr(target,'?'); char* query=""; if(q){*q=0;query=q+1;} mapset(req,STR("method"),STR(method)); mapset(req,STR("path"),B_url_decode(STR(target))); mapset(req,STR("query"),parse_query(query)); Value hdrs=MAP0(); char* he=strstr(nl+2,"\r\n\r\n"); char* line=nl+2; while(line&&he&&line<he){ char* eol=strstr(line,"\r\n"); if(!eol||eol>he)break; *eol=0; char* col=strchr(line,':'); if(col){*col=0; char* val=col+1; while(*val==' ')val++; mapset(hdrs,STR(line),STR(val));} line=eol+2; } mapset(req,STR("headers"),hdrs); mapset(req,STR("body"),STR(he?he+4:"")); return req; }
+static Value B_typeof(Value v){ if(v.t==TS)return STR("string"); if(v.t==TN)return STR("number"); if(v.t==TB)return STR("bool"); if(v.t==TL)return STR("list"); if(v.t==TM)return STR("map"); return STR("nothing"); }
+static Value B_tcp_listen(Value pv){ int srv=socket(AF_INET,SOCK_STREAM,0); int opt=1; setsockopt(srv,SOL_SOCKET,SO_REUSEADDR,&opt,sizeof opt); struct sockaddr_in a; memset(&a,0,sizeof a); a.sin_family=AF_INET; a.sin_addr.s_addr=INADDR_ANY; a.sin_port=htons((long)pv.n); if(bind(srv,(struct sockaddr*)&a,sizeof a)<0) return NUM(-1); listen(srv,64); return NUM(srv); }
+static Value B_accept_req(Value sv){ int c=accept((int)sv.n,0,0); if(c<0) return NIL(); long bl; char* raw=recv_request(c,&bl); Value req=(raw&&bl>0)?parse_request(raw):NIL(); if(req.t==TM) mapset(req,STR("_conn"),NUM(c)); if(raw) free(raw); return req; }
+static Value B_respond(Value req, Value resp){ Value cv=INDEX(req,STR("_conn")); int c=(cv.t==TN)?(int)cv.n:-1; if(c<0) return NIL(); long status=200; char* body=""; char* ctype="text/html; charset=utf-8"; Value xh=NIL(); if(resp.t==TS){ body=resp.s; } else if(resp.t==TM){ Value st=INDEX(resp,STR("status")); if(st.t==TN)status=(long)st.n; Value bd=INDEX(resp,STR("body")); if(bd.t==TM||bd.t==TL){ body=tostr(B_to_json(bd)); ctype="application/json"; } else if(bd.t!=TX) body=tostr(bd); Value ty=INDEX(resp,STR("type")); if(ty.t==TS)ctype=ty.s; xh=INDEX(resp,STR("headers")); } char head[4096]; long bl2=strlen(body); int hn=snprintf(head,sizeof head,"HTTP/1.1 %ld OK\r\nContent-Type: %s\r\nContent-Length: %ld\r\nConnection: close\r\n",status,ctype,bl2); if(xh.t==TM){ for(long i=0;i<xh.m->len;i++) hn+=snprintf(head+hn,sizeof head-hn,"%s: %s\r\n",xh.m->keys[i],tostr(xh.m->vals[i])); } hn+=snprintf(head+hn,sizeof head-hn,"\r\n"); write(c,head,hn); write(c,body,bl2); close(c); return NIL(); }
 static Value vc_serve(long port, Value(*handler)(Value)){ int srv=socket(AF_INET,SOCK_STREAM,0); int opt=1; setsockopt(srv,SOL_SOCKET,SO_REUSEADDR,&opt,sizeof opt); struct sockaddr_in a; memset(&a,0,sizeof a); a.sin_family=AF_INET; a.sin_addr.s_addr=INADDR_ANY; a.sin_port=htons(port); if(bind(srv,(struct sockaddr*)&a,sizeof a)<0){perror("bind");return NIL();} listen(srv,64); printf("Vanta native server on http://localhost:%ld\n",port); fflush(stdout); g_in_req=1;
   for(;;){ ebb(); int c=accept(srv,0,0); if(c<0)continue; long blen; char* raw=recv_request(c,&blen); if(raw&&blen>0){ Value req=parse_request(raw); Value resp=handler(req); long status=200; char* body=""; char* ctype="text/html; charset=utf-8"; Value xh=NIL();
         if(resp.t==TS){ body=resp.s; } else if(resp.t==TM){ Value st=INDEX(resp,STR("status")); if(st.t==TN)status=(long)st.n; Value bd=INDEX(resp,STR("body")); if(bd.t==TM||bd.t==TL){ body=tostr(B_to_json(bd)); ctype="application/json"; } else if(bd.t!=TX) body=tostr(bd); Value ty=INDEX(resp,STR("type")); if(ty.t==TS)ctype=ty.s; xh=INDEX(resp,STR("headers")); }
@@ -224,6 +228,7 @@ Value v_env_def(Value, Value, Value);
 Value v_truthy(Value);
 Value v_eval_expr(Value, Value);
 Value v_call_builtin(Value, Value);
+Value v_apply_fn(Value, Value);
 Value v_eval_call(Value, Value);
 Value v_exec_block(Value, Value);
 Value v_exec_stmt(Value, Value);
@@ -870,7 +875,30 @@ Value v_call_builtin(Value v_name, Value v_args) {
         return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_list_dir(INDEX(v_args, NUM(0))));
     }
     if (truthy(EQ(v_name, STR("http_get")))) {
+        if (truthy(GT(B_length(v_args), NUM(1)))) {
+            return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_http_get(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
+        }
         return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_http_get(INDEX(v_args, NUM(0)), NIL()));
+    }
+    if (truthy(EQ(v_name, STR("typeof")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_typeof(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("serve")))) {
+        Value v_srv = B_tcp_listen(INDEX(v_args, NUM(0)));
+        if (truthy(LT(v_srv, NUM(0)))) {
+            SAY(ADD(STR("serve: could not bind port "), B_text(INDEX(v_args, NUM(0)))));
+            return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), NIL());
+        }
+        SAY(ADD(STR("Vanta server (interpreted, native) on http://localhost:"), B_text(INDEX(v_args, NUM(0)))));
+        Value v_handler = INDEX(v_args, NUM(1));
+        while (truthy(BOOLV(1))) {
+            Value v_req = B_accept_req(v_srv);
+            if (truthy(EQ(B_typeof(v_req), STR("map")))) {
+                Value v_resp = v_apply_fn(v_handler, MKLIST(1, v_req));
+                B_respond(v_req, v_resp);
+            }
+        }
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), NIL());
     }
     if (truthy(EQ(v_name, STR("now")))) {
         return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_now());
@@ -888,24 +916,12 @@ Value v_call_builtin(Value v_name, Value v_args) {
     return NIL();
 }
 
-Value v_eval_call(Value v_node, Value v_env) {
-    Value v_name = INDEX(v_node, STR("name"));
-    Value v_args = MKLIST(0);
-    { Value _s3 = INDEX(v_node, STR("args")); long _n3 = (long)LEN(_s3).n;
-    for (long _i3 = 0; _i3 < _n3; _i3++) {
-        Value v_an = INDEX(_s3, NUM(_i3));
-        listpush(v_args, v_eval_expr(v_an, v_env));
-    } }
-    Value v_bi = v_call_builtin(v_name, v_args);
-    if (truthy(INDEX(v_bi, STR("hit")))) {
-        return INDEX(v_bi, STR("v"));
-    }
-    Value v_fn = v_env_get(v_env, v_name);
+Value v_apply_fn(Value v_fn, Value v_args) {
     Value v_fenv = v_new_env(INDEX(v_fn, STR("env")));
     Value v_i = NUM(0);
-    { Value _s4 = INDEX(v_fn, STR("params")); long _n4 = (long)LEN(_s4).n;
-    for (long _i4 = 0; _i4 < _n4; _i4++) {
-        Value v_p = INDEX(_s4, NUM(_i4));
+    { Value _s3 = INDEX(v_fn, STR("params")); long _n3 = (long)LEN(_s3).n;
+    for (long _i3 = 0; _i3 < _n3; _i3++) {
+        Value v_p = INDEX(_s3, NUM(_i3));
         v_env_def(v_fenv, v_p, INDEX(v_args, v_i));
         v_i = ADD(v_i, NUM(1));
     } }
@@ -914,6 +930,23 @@ Value v_eval_call(Value v_node, Value v_env) {
         return INDEX(v_r, STR("ret"));
     }
     return NIL();
+    return NIL();
+}
+
+Value v_eval_call(Value v_node, Value v_env) {
+    Value v_name = INDEX(v_node, STR("name"));
+    Value v_args = MKLIST(0);
+    { Value _s4 = INDEX(v_node, STR("args")); long _n4 = (long)LEN(_s4).n;
+    for (long _i4 = 0; _i4 < _n4; _i4++) {
+        Value v_an = INDEX(_s4, NUM(_i4));
+        listpush(v_args, v_eval_expr(v_an, v_env));
+    } }
+    Value v_bi = v_call_builtin(v_name, v_args);
+    if (truthy(INDEX(v_bi, STR("hit")))) {
+        return INDEX(v_bi, STR("v"));
+    }
+    Value v_fn = v_env_get(v_env, v_name);
+    return v_apply_fn(v_fn, v_args);
     return NIL();
 }
 

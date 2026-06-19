@@ -616,7 +616,30 @@ to call_builtin(name, args)
         give back {"hit": yes, "v": list_dir(args[0])}
     end
     if name is "http_get"
+        if length(args) is over 1
+            give back {"hit": yes, "v": http_get(args[0], args[1])}
+        end
         give back {"hit": yes, "v": http_get(args[0])}
+    end
+    if name is "typeof"
+        give back {"hit": yes, "v": typeof(args[0])}
+    end
+    if name is "serve"
+        let srv be tcp_listen(args[0])
+        if srv is under 0
+            say "serve: could not bind port " + text(args[0])
+            give back {"hit": yes, "v": nothing}
+        end
+        say "Vanta server (interpreted, native) on http://localhost:" + text(args[0])
+        let handler be args[1]
+        while yes
+            let req be accept_req(srv)
+            if typeof(req) is "map"
+                let resp be apply_fn(handler, [req])
+                respond(req, resp)
+            end
+        end
+        give back {"hit": yes, "v": nothing}
     end
     if name is "now"
         give back {"hit": yes, "v": now()}
@@ -633,17 +656,7 @@ to call_builtin(name, args)
     give back {"hit": no, "v": nothing}
 end
 
-to eval_call(node, env)
-    let name be node["name"]
-    let args be []
-    for each an in node["args"]
-        add eval_expr(an, env) to args
-    end
-    let bi be call_builtin(name, args)
-    if bi["hit"]
-        give back bi["v"]
-    end
-    let fn be env_get(env, name)
+to apply_fn(fn, args)
     let fenv be new_env(fn["env"])
     let i be 0
     for each p in fn["params"]
@@ -655,6 +668,20 @@ to eval_call(node, env)
         give back r["ret"]
     end
     give back nothing
+end
+
+to eval_call(node, env)
+    let name be node["name"]
+    let args be []
+    for each an in node["args"]
+        add eval_expr(an, env) to args
+    end
+    let bi be call_builtin(name, args)
+    if bi["hit"]
+        give back bi["v"]
+    end
+    let fn be env_get(env, name)
+    give back apply_fn(fn, args)
 end
 
 to exec_block(stmts, env)
