@@ -323,7 +323,17 @@ Value v_lex_line(Value v_line) {
 }
 
 Value v_parse_expr(Value v_toks, Value v_i) {
-    return v_parse_or(v_toks, v_i);
+    Value v_left = v_parse_or(v_toks, v_i);
+    Value v_j = INDEX(v_left, STR("i"));
+    if (truthy(ANDV(ANDV(LT(v_j, B_length(v_toks)), EQ(INDEX(INDEX(v_toks, v_j), STR("t")), STR("word"))), EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("if"))))) {
+        Value v_cond = v_parse_or(v_toks, ADD(v_j, NUM(1)));
+        Value v_k2 = INDEX(v_cond, STR("i"));
+        if (truthy(ANDV(ANDV(LT(v_k2, B_length(v_toks)), EQ(INDEX(INDEX(v_toks, v_k2), STR("t")), STR("word"))), EQ(INDEX(INDEX(v_toks, v_k2), STR("v")), STR("otherwise"))))) {
+            Value v_els = v_parse_expr(v_toks, ADD(v_k2, NUM(1)));
+            return MKMAP(2, STR("node"), MKMAP(4, STR("k"), STR("ternary"), STR("cond"), INDEX(v_cond, STR("node")), STR("then"), INDEX(v_left, STR("node")), STR("else"), INDEX(v_els, STR("node"))), STR("i"), INDEX(v_els, STR("i")));
+        }
+    }
+    return v_left;
     return NIL();
 }
 
@@ -421,7 +431,7 @@ Value v_parse_mul(Value v_toks, Value v_i) {
     Value v_left = v_parse_unary(v_toks, v_i);
     Value v_node = INDEX(v_left, STR("node"));
     Value v_j = INDEX(v_left, STR("i"));
-    while (truthy(ANDV(ANDV(LT(v_j, B_length(v_toks)), EQ(INDEX(INDEX(v_toks, v_j), STR("t")), STR("sym"))), ORV(EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("*")), EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("/")))))) {
+    while (truthy(ANDV(ANDV(LT(v_j, B_length(v_toks)), EQ(INDEX(INDEX(v_toks, v_j), STR("t")), STR("sym"))), ORV(ORV(EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("*")), EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("/"))), EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("%")))))) {
         Value v_op = INDEX(INDEX(v_toks, v_j), STR("v"));
         Value v_right = v_parse_unary(v_toks, ADD(v_j, NUM(1)));
         v_node = MKMAP(4, STR("k"), STR("bin"), STR("op"), v_op, STR("a"), v_node, STR("b"), INDEX(v_right, STR("node")));
@@ -515,6 +525,18 @@ Value v_parse_atom(Value v_toks, Value v_i) {
         }
         if (truthy(EQ(v_w, STR("nothing")))) {
             return MKMAP(2, STR("node"), MKMAP(2, STR("k"), STR("lit"), STR("v"), NIL()), STR("i"), ADD(v_i, NUM(1)));
+        }
+        if (truthy(EQ(v_w, STR("make")))) {
+            Value v_params = MKLIST(0);
+            Value v_j = ADD(v_i, NUM(1));
+            while (truthy(ANDV(LT(v_j, B_length(v_toks)), NOTV(ANDV(EQ(INDEX(INDEX(v_toks, v_j), STR("t")), STR("word")), EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("give"))))))) {
+                if (truthy(EQ(INDEX(INDEX(v_toks, v_j), STR("t")), STR("word")))) {
+                    listpush(v_params, INDEX(INDEX(v_toks, v_j), STR("v")));
+                }
+                v_j = ADD(v_j, NUM(1));
+            }
+            Value v_lbody = v_parse_expr(v_toks, ADD(v_j, NUM(1)));
+            return MKMAP(2, STR("node"), MKMAP(3, STR("k"), STR("lambda"), STR("params"), v_params, STR("body"), INDEX(v_lbody, STR("node"))), STR("i"), INDEX(v_lbody, STR("i")));
         }
         if (truthy(ANDV(ANDV(LT(ADD(v_i, NUM(1)), B_length(v_toks)), EQ(INDEX(INDEX(v_toks, ADD(v_i, NUM(1))), STR("t")), STR("sym"))), EQ(INDEX(INDEX(v_toks, ADD(v_i, NUM(1))), STR("v")), STR("("))))) {
             Value v_args = MKLIST(0);
@@ -722,6 +744,15 @@ Value v_eval_expr(Value v_node, Value v_env) {
     if (truthy(EQ(v_k, STR("not")))) {
         return NOTV(v_truthy(v_eval_expr(INDEX(v_node, STR("a")), v_env)));
     }
+    if (truthy(EQ(v_k, STR("lambda")))) {
+        return MKMAP(3, STR("params"), INDEX(v_node, STR("params")), STR("body"), MKLIST(1, MKMAP(2, STR("k"), STR("ret"), STR("e"), INDEX(v_node, STR("body")))), STR("env"), v_env);
+    }
+    if (truthy(EQ(v_k, STR("ternary")))) {
+        if (truthy(v_truthy(v_eval_expr(INDEX(v_node, STR("cond")), v_env)))) {
+            return v_eval_expr(INDEX(v_node, STR("then")), v_env);
+        }
+        return v_eval_expr(INDEX(v_node, STR("else")), v_env);
+    }
     if (truthy(EQ(v_k, STR("and")))) {
         if (truthy(NOTV(v_truthy(v_eval_expr(INDEX(v_node, STR("a")), v_env))))) {
             return BOOLV(0);
@@ -746,6 +777,9 @@ Value v_eval_expr(Value v_node, Value v_env) {
         }
         if (truthy(EQ(v_op, STR("*")))) {
             return MUL(v_a, v_b);
+        }
+        if (truthy(EQ(v_op, STR("%")))) {
+            return SUB(v_a, MUL(B_floor(DIVV(v_a, v_b)), v_b));
         }
         return DIVV(v_a, v_b);
     }
@@ -987,6 +1021,100 @@ Value v_call_builtin(Value v_name, Value v_args) {
     if (truthy(EQ(v_name, STR("remove_at")))) {
         return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_remove_at(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
     }
+    if (truthy(EQ(v_name, STR("map")))) {
+        Value v_out = MKLIST(0);
+        { Value _s3 = INDEX(v_args, NUM(1)); long _n3 = (long)LEN(_s3).n;
+        for (long _i3 = 0; _i3 < _n3; _i3++) {
+            Value v_it = INDEX(_s3, NUM(_i3));
+            listpush(v_out, v_apply_fn(INDEX(v_args, NUM(0)), MKLIST(1, v_it)));
+        } }
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), v_out);
+    }
+    if (truthy(EQ(v_name, STR("keep")))) {
+        Value v_out = MKLIST(0);
+        { Value _s4 = INDEX(v_args, NUM(1)); long _n4 = (long)LEN(_s4).n;
+        for (long _i4 = 0; _i4 < _n4; _i4++) {
+            Value v_it = INDEX(_s4, NUM(_i4));
+            if (truthy(v_truthy(v_apply_fn(INDEX(v_args, NUM(0)), MKLIST(1, v_it))))) {
+                listpush(v_out, v_it);
+            }
+        } }
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), v_out);
+    }
+    if (truthy(EQ(v_name, STR("reduce")))) {
+        Value v_acc = INDEX(v_args, NUM(2));
+        { Value _s5 = INDEX(v_args, NUM(1)); long _n5 = (long)LEN(_s5).n;
+        for (long _i5 = 0; _i5 < _n5; _i5++) {
+            Value v_it = INDEX(_s5, NUM(_i5));
+            v_acc = v_apply_fn(INDEX(v_args, NUM(0)), MKLIST(2, v_acc, v_it));
+        } }
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), v_acc);
+    }
+    if (truthy(EQ(v_name, STR("each")))) {
+        { Value _s6 = INDEX(v_args, NUM(1)); long _n6 = (long)LEN(_s6).n;
+        for (long _i6 = 0; _i6 < _n6; _i6++) {
+            Value v_it = INDEX(_s6, NUM(_i6));
+            v_apply_fn(INDEX(v_args, NUM(0)), MKLIST(1, v_it));
+        } }
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), NIL());
+    }
+    if (truthy(EQ(v_name, STR("count_where")))) {
+        Value v_c = NUM(0);
+        { Value _s7 = INDEX(v_args, NUM(1)); long _n7 = (long)LEN(_s7).n;
+        for (long _i7 = 0; _i7 < _n7; _i7++) {
+            Value v_it = INDEX(_s7, NUM(_i7));
+            if (truthy(v_truthy(v_apply_fn(INDEX(v_args, NUM(0)), MKLIST(1, v_it))))) {
+                v_c = ADD(v_c, NUM(1));
+            }
+        } }
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), v_c);
+    }
+    if (truthy(EQ(v_name, STR("find_where")))) {
+        { Value _s8 = INDEX(v_args, NUM(1)); long _n8 = (long)LEN(_s8).n;
+        for (long _i8 = 0; _i8 < _n8; _i8++) {
+            Value v_it = INDEX(_s8, NUM(_i8));
+            if (truthy(v_truthy(v_apply_fn(INDEX(v_args, NUM(0)), MKLIST(1, v_it))))) {
+                return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), v_it);
+            }
+        } }
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), NIL());
+    }
+    if (truthy(EQ(v_name, STR("sort_by")))) {
+        Value v_remaining = MKLIST(0);
+        { Value _s9 = INDEX(v_args, NUM(1)); long _n9 = (long)LEN(_s9).n;
+        for (long _i9 = 0; _i9 < _n9; _i9++) {
+            Value v_it = INDEX(_s9, NUM(_i9));
+            listpush(v_remaining, v_it);
+        } }
+        Value v_out = MKLIST(0);
+        while (truthy(GT(B_length(v_remaining), NUM(0)))) {
+            Value v_best = INDEX(v_remaining, NUM(0));
+            Value v_bk = v_apply_fn(INDEX(v_args, NUM(0)), MKLIST(1, v_best));
+            { Value _s10 = v_remaining; long _n10 = (long)LEN(_s10).n;
+            for (long _i10 = 0; _i10 < _n10; _i10++) {
+                Value v_it = INDEX(_s10, NUM(_i10));
+                Value v_kk = v_apply_fn(INDEX(v_args, NUM(0)), MKLIST(1, v_it));
+                if (truthy(LT(v_kk, v_bk))) {
+                    v_best = v_it;
+                    v_bk = v_kk;
+                }
+            } }
+            listpush(v_out, v_best);
+            Value v_nr = MKLIST(0);
+            Value v_removed = NUM(0);
+            { Value _s11 = v_remaining; long _n11 = (long)LEN(_s11).n;
+            for (long _i11 = 0; _i11 < _n11; _i11++) {
+                Value v_it = INDEX(_s11, NUM(_i11));
+                if (truthy(ANDV(EQ(v_removed, NUM(0)), EQ(v_it, v_best)))) {
+                    v_removed = NUM(1);
+                } else {
+                    listpush(v_nr, v_it);
+                }
+            } }
+            v_remaining = v_nr;
+        }
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), v_out);
+    }
     if (truthy(EQ(v_name, STR("assert")))) {
         if (truthy(GT(B_length(v_args), NUM(1)))) {
             return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_assert(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
@@ -1003,9 +1131,9 @@ Value v_call_builtin(Value v_name, Value v_args) {
 Value v_apply_fn(Value v_fn, Value v_args) {
     Value v_fenv = v_new_env(INDEX(v_fn, STR("env")));
     Value v_i = NUM(0);
-    { Value _s3 = INDEX(v_fn, STR("params")); long _n3 = (long)LEN(_s3).n;
-    for (long _i3 = 0; _i3 < _n3; _i3++) {
-        Value v_p = INDEX(_s3, NUM(_i3));
+    { Value _s12 = INDEX(v_fn, STR("params")); long _n12 = (long)LEN(_s12).n;
+    for (long _i12 = 0; _i12 < _n12; _i12++) {
+        Value v_p = INDEX(_s12, NUM(_i12));
         v_env_def(v_fenv, v_p, INDEX(v_args, v_i));
         v_i = ADD(v_i, NUM(1));
     } }
@@ -1020,9 +1148,9 @@ Value v_apply_fn(Value v_fn, Value v_args) {
 Value v_eval_call(Value v_node, Value v_env) {
     Value v_name = INDEX(v_node, STR("name"));
     Value v_args = MKLIST(0);
-    { Value _s4 = INDEX(v_node, STR("args")); long _n4 = (long)LEN(_s4).n;
-    for (long _i4 = 0; _i4 < _n4; _i4++) {
-        Value v_an = INDEX(_s4, NUM(_i4));
+    { Value _s13 = INDEX(v_node, STR("args")); long _n13 = (long)LEN(_s13).n;
+    for (long _i13 = 0; _i13 < _n13; _i13++) {
+        Value v_an = INDEX(_s13, NUM(_i13));
         listpush(v_args, v_eval_expr(v_an, v_env));
     } }
     Value v_bi = v_call_builtin(v_name, v_args);
@@ -1035,16 +1163,16 @@ Value v_eval_call(Value v_node, Value v_env) {
 }
 
 Value v_exec_block(Value v_stmts, Value v_env) {
-    { Value _s5 = v_stmts; long _n5 = (long)LEN(_s5).n;
-    for (long _i5 = 0; _i5 < _n5; _i5++) {
-        Value v_st = INDEX(_s5, NUM(_i5));
+    { Value _s14 = v_stmts; long _n14 = (long)LEN(_s14).n;
+    for (long _i14 = 0; _i14 < _n14; _i14++) {
+        Value v_st = INDEX(_s14, NUM(_i14));
         if (truthy(EQ(INDEX(v_st, STR("k")), STR("func")))) {
             v_exec_stmt(v_st, v_env);
         }
     } }
-    { Value _s6 = v_stmts; long _n6 = (long)LEN(_s6).n;
-    for (long _i6 = 0; _i6 < _n6; _i6++) {
-        Value v_st = INDEX(_s6, NUM(_i6));
+    { Value _s15 = v_stmts; long _n15 = (long)LEN(_s15).n;
+    for (long _i15 = 0; _i15 < _n15; _i15++) {
+        Value v_st = INDEX(_s15, NUM(_i15));
         if (truthy(NE(INDEX(v_st, STR("k")), STR("func")))) {
             Value v_r = v_exec_stmt(v_st, v_env);
             if (truthy(INOP(STR("ret"), v_r))) {
@@ -1081,9 +1209,9 @@ Value v_exec_stmt(Value v_st, Value v_env) {
     }
     if (truthy(EQ(v_k, STR("for")))) {
         Value v_seq = v_eval_expr(INDEX(v_st, STR("list")), v_env);
-        { Value _s7 = v_seq; long _n7 = (long)LEN(_s7).n;
-        for (long _i7 = 0; _i7 < _n7; _i7++) {
-            Value v_item = INDEX(_s7, NUM(_i7));
+        { Value _s16 = v_seq; long _n16 = (long)LEN(_s16).n;
+        for (long _i16 = 0; _i16 < _n16; _i16++) {
+            Value v_item = INDEX(_s16, NUM(_i16));
             v_env_def(v_env, INDEX(v_st, STR("var")), v_item);
             Value v_r = v_exec_block(INDEX(v_st, STR("body")), v_env);
             if (truthy(INOP(STR("ret"), v_r))) {
@@ -1140,9 +1268,9 @@ Value v_exec_stmt(Value v_st, Value v_env) {
 
 Value v_vrun(Value v_src) {
     Value v_prog = MKLIST(0);
-    { Value _s8 = B_split(v_src, STR("\n")); long _n8 = (long)LEN(_s8).n;
-    for (long _i8 = 0; _i8 < _n8; _i8++) {
-        Value v_line = INDEX(_s8, NUM(_i8));
+    { Value _s17 = B_split(v_src, STR("\n")); long _n17 = (long)LEN(_s17).n;
+    for (long _i17 = 0; _i17 < _n17; _i17++) {
+        Value v_line = INDEX(_s17, NUM(_i17));
         Value v_toks = v_lex_line(v_line);
         if (truthy(GT(B_length(v_toks), NUM(0)))) {
             listpush(v_prog, v_toks);

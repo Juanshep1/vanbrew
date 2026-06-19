@@ -71,7 +71,17 @@ end
 
 # ---- expression parser (recursive descent; returns {node, i}) -------------
 to parse_expr(toks, i)
-    give back parse_or(toks, i)
+    let left be parse_or(toks, i)
+    let j be left["i"]
+    if j is under length(toks) and toks[j]["t"] is "word" and toks[j]["v"] is "if"
+        let cond be parse_or(toks, j + 1)
+        let k2 be cond["i"]
+        if k2 is under length(toks) and toks[k2]["t"] is "word" and toks[k2]["v"] is "otherwise"
+            let els be parse_expr(toks, k2 + 1)
+            give back {"node": {"k": "ternary", "cond": cond["node"], "then": left["node"], "else": els["node"]}, "i": els["i"]}
+        end
+    end
+    give back left
 end
 
 to parse_or(toks, i)
@@ -156,7 +166,7 @@ to parse_mul(toks, i)
     let left be parse_unary(toks, i)
     let node be left["node"]
     let j be left["i"]
-    while j is under length(toks) and toks[j]["t"] is "sym" and (toks[j]["v"] is "*" or toks[j]["v"] is "/")
+    while j is under length(toks) and toks[j]["t"] is "sym" and (toks[j]["v"] is "*" or toks[j]["v"] is "/" or toks[j]["v"] is "%")
         let op be toks[j]["v"]
         let right be parse_unary(toks, j + 1)
         change node to {"k": "bin", "op": op, "a": node, "b": right["node"]}
@@ -246,6 +256,18 @@ to parse_atom(toks, i)
         end
         if w is "nothing"
             give back {"node": {"k": "lit", "v": nothing}, "i": i + 1}
+        end
+        if w is "make"
+            let params be []
+            let j be i + 1
+            while j is under length(toks) and not (toks[j]["t"] is "word" and toks[j]["v"] is "give")
+                if toks[j]["t"] is "word"
+                    add toks[j]["v"] to params
+                end
+                change j to j + 1
+            end
+            let lbody be parse_expr(toks, j + 1)
+            give back {"node": {"k": "lambda", "params": params, "body": lbody["node"]}, "i": lbody["i"]}
         end
         if (i + 1) is under length(toks) and toks[i + 1]["t"] is "sym" and toks[i + 1]["v"] is "("
             let args be []
@@ -443,6 +465,15 @@ to eval_expr(node, env)
     if k is "not"
         give back not truthy(eval_expr(node["a"], env))
     end
+    if k is "lambda"
+        give back {"params": node["params"], "body": [{"k": "ret", "e": node["body"]}], "env": env}
+    end
+    if k is "ternary"
+        if truthy(eval_expr(node["cond"], env))
+            give back eval_expr(node["then"], env)
+        end
+        give back eval_expr(node["else"], env)
+    end
     if k is "and"
         if not truthy(eval_expr(node["a"], env))
             give back no
@@ -467,6 +498,9 @@ to eval_expr(node, env)
         end
         if op is "*"
             give back a * b
+        end
+        if op is "%"
+            give back a - floor(a / b) * b
         end
         give back a / b
     end
@@ -706,6 +740,82 @@ to call_builtin(name, args)
     end
     if name is "remove_at"
         give back {"hit": yes, "v": remove_at(args[0], args[1])}
+    end
+    if name is "map"
+        let out be []
+        for each it in args[1]
+            add apply_fn(args[0], [it]) to out
+        end
+        give back {"hit": yes, "v": out}
+    end
+    if name is "keep"
+        let out be []
+        for each it in args[1]
+            if truthy(apply_fn(args[0], [it]))
+                add it to out
+            end
+        end
+        give back {"hit": yes, "v": out}
+    end
+    if name is "reduce"
+        let acc be args[2]
+        for each it in args[1]
+            change acc to apply_fn(args[0], [acc, it])
+        end
+        give back {"hit": yes, "v": acc}
+    end
+    if name is "each"
+        for each it in args[1]
+            apply_fn(args[0], [it])
+        end
+        give back {"hit": yes, "v": nothing}
+    end
+    if name is "count_where"
+        let c be 0
+        for each it in args[1]
+            if truthy(apply_fn(args[0], [it]))
+                change c to c + 1
+            end
+        end
+        give back {"hit": yes, "v": c}
+    end
+    if name is "find_where"
+        for each it in args[1]
+            if truthy(apply_fn(args[0], [it]))
+                give back {"hit": yes, "v": it}
+            end
+        end
+        give back {"hit": yes, "v": nothing}
+    end
+    if name is "sort_by"
+        let remaining be []
+        for each it in args[1]
+            add it to remaining
+        end
+        let out be []
+        while length(remaining) is over 0
+            let best be remaining[0]
+            let bk be apply_fn(args[0], [best])
+            for each it in remaining
+                let kk be apply_fn(args[0], [it])
+                if kk is under bk
+                    change best to it
+                    change bk to kk
+                end
+            end
+            add best to out
+            let nr be []
+            let removed be 0
+            for each it in remaining
+                if removed is 0 and it is best
+                    change removed to 1
+                otherwise
+                    add it to nr
+                end
+            end
+            change remaining to nr
+        end
+        give back {"hit": yes, "v": out}
     end
     if name is "assert"
         if length(args) is over 1
