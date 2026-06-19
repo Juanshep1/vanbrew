@@ -71,14 +71,14 @@ BUILTIN = {
         "bin": [{"name": "vnox", "kind": "vanta", "main": "vnox.va"}],
     },
     "vself": {
-        "version": "1.0",
+        "version": "1.1",
         "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta, shipped as NATIVE C so it runs with ZERO Python (just cc to build). `vself prog.va` runs functions/recursion/lists/maps/file I/O, and even runs the vc compiler itself.",
         "files": [{"source": _u("/packages/vself/vanta.va.c"), "as": "vanta.va.c"},
                   {"source": _u("/packages/vself/vanta.va"), "as": "vanta.va"}],
         "bin": [{"name": "vself", "kind": "cc", "main": "vanta.va.c"}],
     },
     "vc": {
-        "version": "1.0",
+        "version": "1.1",
         "summary": "vc - a self-hosting Vanta-to-C compiler (in Vanta), shipped as NATIVE C so the compiler itself runs with ZERO Python (just cc to build it, then `vc prog.va` -> a native binary). Compiles strings/lists/maps/serve()/HTTP/JSON/filesystem + an Ebb GC - even itself and the interpreter.",
         "files": [{"source": _u("/packages/vc/vc.va.c"), "as": "vc.va.c"},
                   {"source": _u("/packages/vc/vc.va"), "as": "vc.va"}],

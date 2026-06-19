@@ -139,7 +139,7 @@ static Value B_env(Value k){ char* v=getenv(tostr(k)); return STR(v?v:""); }
 static Value B_now(void){ return NUM((double)time(0)); }
 static Value B_clock(void){ time_t t=time(0); struct tm* m=localtime(&t); char b[16]; sprintf(b,"%02d:%02d:%02d",m->tm_hour,m->tm_min,m->tm_sec); return STR(b); }
 static Value B_today(void){ time_t t=time(0); struct tm* m=localtime(&t); char b[16]; sprintf(b,"%04d-%02d-%02d",m->tm_year+1900,m->tm_mon+1,m->tm_mday); return STR(b); }
-static Value B_http_get(Value url){ char cmd[8192]; snprintf(cmd,sizeof cmd,"curl -s '%s'",tostr(url)); Value out=B_run(STR(cmd)); return MKMAP(2,STR("status"),NUM(200),STR("body"),out); }
+static Value B_http_get(Value url, Value headers){ char cmd[16384]; int n=snprintf(cmd,sizeof cmd,"curl -sL"); if(headers.t==TM){ for(long i=0;i<headers.m->len;i++) n+=snprintf(cmd+n,sizeof cmd-n," -H '%s: %s'",headers.m->keys[i],tostr(headers.m->vals[i])); } snprintf(cmd+n,sizeof cmd-n," '%s'",tostr(url)); Value out=B_run(STR(cmd)); return MKMAP(2,STR("status"),NUM(200),STR("body"),out); }
 static Value parse_query(const char* q){ Value m=MAP0(); if(!q||!*q)return m; char* s=sdup(q); char* p=s; while(p&&*p){ char* amp=strchr(p,'&'); if(amp)*amp=0; char* eq=strchr(p,'='); if(eq){*eq=0; Value k=B_url_decode(STR(p)); Value v=B_url_decode(STR(eq+1)); mapset(m,k,v);} p=amp?amp+1:0; } free(s); return m; }
 static char* recv_request(int c,long* blen){ long cap=8192,len=0; char* buf=malloc(cap); for(;;){ if(len+4096>=cap){cap*=2;buf=realloc(buf,cap);} long r=recv(c,buf+len,4096,0); if(r<=0)break; len+=r; buf[len]=0; char* he=strstr(buf,"\r\n\r\n"); if(he){ long hlen=he-buf+4; char* cl=strcasestr(buf,"content-length:"); long want=cl?atol(cl+15):0; while((long)(len-hlen)<want){ if(len+4096>=cap){cap*=2;buf=realloc(buf,cap);} long r2=recv(c,buf+len,4096,0); if(r2<=0)break; len+=r2; } buf[len]=0; break; } } *blen=len; return buf; }
 static Value parse_request(char* raw){ Value req=MAP0(); char* nl=strstr(raw,"\r\n"); if(!nl)return req; *nl=0; char* method=raw; char* sp=strchr(raw,' '); if(!sp)return req; *sp=0; char* target=sp+1; char* sp2=strchr(target,' '); if(sp2)*sp2=0; char* q=strchr(target,'?'); char* query=""; if(q){*q=0;query=q+1;} mapset(req,STR("method"),STR(method)); mapset(req,STR("path"),B_url_decode(STR(target))); mapset(req,STR("query"),parse_query(query)); Value hdrs=MAP0(); char* he=strstr(nl+2,"\r\n\r\n"); char* line=nl+2; while(line&&he&&line<he){ char* eol=strstr(line,"\r\n"); if(!eol||eol>he)break; *eol=0; char* col=strchr(line,':'); if(col){*col=0; char* val=col+1; while(*val==' ')val++; mapset(hdrs,STR(line),STR(val));} line=eol+2; } mapset(req,STR("headers"),hdrs); mapset(req,STR("body"),STR(he?he+4:"")); return req; }
@@ -870,7 +870,7 @@ Value v_call_builtin(Value v_name, Value v_args) {
         return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_list_dir(INDEX(v_args, NUM(0))));
     }
     if (truthy(EQ(v_name, STR("http_get")))) {
-        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_http_get(INDEX(v_args, NUM(0))));
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_http_get(INDEX(v_args, NUM(0)), NIL()));
     }
     if (truthy(EQ(v_name, STR("now")))) {
         return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_now());
