@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "2.3"
+VERSION = "2.4"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -778,18 +778,24 @@ HELP = """  Commands:
     "read snake.va and explain what it does"
 """
 
-def _rl_prompt():
-    if not COLOR: return "› "
-    code = "\033[%sm" % _code(THEME["accent"])
-    # GNU readline needs \001..\002 around non-printing bytes for width; but those
-    # markers break libedit's Tab-completion (macOS), so there we use raw escapes.
+def _is_libedit():
     try:
         import readline
-        if "libedit" in (readline.__doc__ or ""):
-            return code + "│ › \033[0m"
+        return "libedit" in (readline.__doc__ or "")
     except Exception:
-        pass
-    return "\001%s\002│ › \001\033[0m\002" % code
+        return False
+
+def _rl_prompt():
+    # The prompt's reported width must equal its VISIBLE width, or readline mis-wraps
+    # long input (the line redraws over itself - "an erasable line"). GNU readline
+    # honors \001..\002 around non-printing bytes, so we can colour it. macOS libedit
+    # does NOT - it counts the escape bytes as width and splits them on wrap - so there
+    # we use a PLAIN prompt (multibyte glyphs are fine; only escapes break it). Plain
+    # also keeps Tab-completion working under libedit.
+    if COLOR and not _is_libedit():
+        code = "\033[%sm" % _code(THEME["accent"])
+        return "\001%s\002│ › \001\033[0m\002" % code
+    return "│ › "
 
 def prompt_input():
     w = term_width()
@@ -1192,8 +1198,9 @@ def main():
             continue
         if line == '"""':                              # paste a multi-line block until the next """
             buf = []
+            _mlp = dim("  ┃ ") if (COLOR and not _is_libedit()) else "  ┃ "
             while True:
-                try: more = input(dim("  ┃ "))
+                try: more = input(_mlp)
                 except EOFError: break
                 if more.strip() == '"""': break
                 buf.append(more)
