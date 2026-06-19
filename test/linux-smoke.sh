@@ -43,7 +43,7 @@ exec 3<>/dev/tcp/127.0.0.1/8123
 printf 'GET /hi HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n' >&3
 resp="$(timeout 3 cat <&3 | tail -1)"; echo "   $resp"
 kill "$SRV" 2>/dev/null || true
-echo "$resp" | grep -q '"ok":true' || { echo "FAIL: web server"; exit 1; }
+echo "$resp" | grep -q '"ok": *true' || { echo "FAIL: web server"; exit 1; }
 
 echo "== [4] no Python linkage =="
 if ldd "$TMP/vc" | grep -qi python; then echo "FAIL: python linked"; exit 1; fi
