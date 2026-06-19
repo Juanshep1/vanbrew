@@ -1,0 +1,43 @@
+# super calls, multiple assignment, and map comprehensions.
+
+type Base
+    has label
+    to setup(label)
+        change me.label to label
+    end
+    to greet()
+        give back "base:" + me.label
+    end
+end
+
+type Derived from Base
+    to greet()
+        give back "derived+" + super.greet()
+    end
+end
+
+let d be new Derived("x")
+assert(d.greet() is "derived+base:x", "super reaches the parent method")
+
+# multiple assignment
+let a, b be [1, 2]
+assert(a is 1, "unpack first")
+assert(b is 2, "unpack second")
+
+let x, y be 10, 20
+assert(x + y is 30, "assign several values")
+
+change x, y to y, x
+assert(x is 20, "swap left")
+assert(y is 10, "swap right")
+
+# map comprehensions
+let squares be { n: n * n for each n in [1, 2, 3] }
+assert(squares[3] is 9, "map comprehension value")
+assert(length(keys(squares)) is 3, "map comprehension size")
+
+let evens be { n: yes for each n in range(1, 7) if n % 2 is 0 }
+assert(contains(evens, 4), "map comprehension keeps evens")
+assert(not contains(evens, 3), "map comprehension drops odds")
+
+say "extras tests passed"

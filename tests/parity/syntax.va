@@ -1,0 +1,71 @@
+# Newer language features: inline conditional, membership, negative indexing,
+# repetition, two-name loops, match, and increase/decrease.
+
+# inline conditional (A if COND otherwise B)
+let age be 20
+assert(("adult" if age is at least 18 otherwise "minor") is "adult", "inline if true")
+assert(("even" if age % 2 is 0 otherwise "odd") is "even", "inline if false branch")
+assert(([1, 2, 3] if no otherwise [4, 5])[0] is 4, "inline if picks else")
+
+# membership: is in / is not in
+assert(3 is in [1, 2, 3], "in list")
+assert(not (9 is in [1, 2, 3]), "in list false")
+assert("t" is in "vanta", "in text")
+assert("name" is in { "name": "Juan" }, "in map keys")
+assert(9 is not in [1, 2, 3], "not in list")
+assert(not ("a" is not in "abc"), "not in text false")
+
+# negative indexing
+let xs be [10, 20, 30]
+assert(xs[-1] is 30, "negative index last")
+assert(xs[-2] is 20, "negative index second to last")
+assert("vanta"[-1] is "a", "negative index text")
+
+# repetition with *
+assert("ab" * 3 is "ababab", "text repeat")
+assert(to_json([0] * 4) is "[0, 0, 0, 0]", "list repeat")
+assert(to_json(3 * [1, 2]) is "[1, 2, 1, 2, 1, 2]", "number times list")
+
+# two-name loops over maps, lists, and text
+let m be { "a": 1, "b": 2 }
+let keys_seen be []
+let sum be 0
+for each key, value in m
+    add key to keys_seen
+    increase sum by value
+end
+assert(to_json(keys_seen) is "[\"a\", \"b\"]", "map key,value loop keys")
+assert(sum is 3, "map key,value loop values")
+
+let pairs be []
+for each i, item in ["x", "y", "z"]
+    add i to pairs
+end
+assert(to_json(pairs) is "[0, 1, 2]", "list index,item loop")
+
+# match / when
+to size_of(n)
+    match n
+        when 0
+            give back "none"
+        when 1
+            give back "one"
+        otherwise
+            give back "many"
+    end
+end
+assert(size_of(0) is "none", "match first")
+assert(size_of(1) is "one", "match second")
+assert(size_of(42) is "many", "match otherwise")
+
+# increase / decrease (including on an indexed target)
+let total be 10
+increase total by 5
+decrease total by 3
+assert(total is 12, "increase then decrease")
+
+let counts be [0, 0, 0]
+increase counts[1] by 7
+assert(counts[1] is 7, "increase an indexed target")
+
+say "syntax tests passed"

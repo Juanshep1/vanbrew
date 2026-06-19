@@ -2636,9 +2636,20 @@ def b_html_escape(args):
              .replace('"', "&quot;").replace("'", "&#39;"))
 
 
+def b_typeof(args):
+    _need(args, 1, "typeof")
+    v = args[0]
+    if isinstance(v, bool): return "bool"
+    if isinstance(v, (int, float)): return "number"
+    if isinstance(v, str): return "text"
+    if isinstance(v, list): return "list"
+    if isinstance(v, dict): return "map"
+    return "nothing"
+
+
 BUILTINS = {
     # conversions & inspection
-    "length": b_length, "text": b_text, "number": b_number,
+    "length": b_length, "text": b_text, "number": b_number, "typeof": b_typeof,
     "type_of": b_type_of, "is_number": b_is_number, "is_text": b_is_text,
     "is_list": b_is_list, "is_map": b_is_map, "is_function": b_is_function,
     "is_nothing": b_is_nothing, "is_a": b_is_a,

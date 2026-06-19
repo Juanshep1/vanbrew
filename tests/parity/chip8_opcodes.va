@@ -1,0 +1,90 @@
+# CHIP-8 opcode unit tests. Loads the emulator, runs single opcodes against
+# its state, and checks the result. No ROM needed.
+
+import "emulator/chip8.va"
+
+# helpers to build opcodes from their parts
+to opc(p, x, kk)
+    give back bor(shift_left(p, 12), bor(shift_left(x, 8), kk))
+end
+
+to op4(p, x, y, n)
+    give back bor(shift_left(p, 12), bor(shift_left(x, 8), bor(shift_left(y, 4), n)))
+end
+
+chip8_init()
+
+# 6XKK set, 7XKK add
+chip8_execute(opc(6, 1, 5))
+assert(cpu["V"][1] is 5, "6XKK set register")
+chip8_execute(opc(7, 1, 10))
+assert(cpu["V"][1] is 15, "7XKK add to register")
+
+# 8XY4 add with carry into VF
+change cpu["V"][2] to 200
+change cpu["V"][3] to 100
+chip8_execute(op4(8, 2, 3, 4))
+assert(cpu["V"][2] is 44, "8XY4 add wraps at 256")
+assert(cpu["V"][15] is 1, "8XY4 sets carry flag")
+
+# 8XY5 subtract with borrow
+change cpu["V"][4] to 5
+change cpu["V"][5] to 9
+chip8_execute(op4(8, 4, 5, 5))
+assert(cpu["V"][4] is 252, "8XY5 subtract wraps")
+assert(cpu["V"][15] is 0, "8XY5 clears flag on borrow")
+
+# 8XY2 bitwise AND
+change cpu["V"][6] to 12
+change cpu["V"][7] to 10
+chip8_execute(op4(8, 6, 7, 2))
+assert(cpu["V"][6] is 8, "8XY2 bitwise and")
+
+# ANNN set I, 1NNN jump
+chip8_execute(bor(40960, 600))
+assert(cpu["I"] is 600, "ANNN sets I")
+chip8_execute(bor(4096, 800))
+assert(cpu["pc"] is 800, "1NNN jumps")
+
+# 3XKK skip-if-equal
+change cpu["pc"] to 100
+change cpu["V"][0] to 7
+chip8_execute(opc(3, 0, 7))
+assert(cpu["pc"] is 102, "3XKK skips when equal")
+change cpu["pc"] to 100
+chip8_execute(opc(3, 0, 9))
+assert(cpu["pc"] is 100, "3XKK does not skip when unequal")
+
+# 2NNN call and 00EE return
+change cpu["pc"] to 600
+chip8_execute(bor(8192, 900))
+assert(cpu["pc"] is 900, "2NNN call jumps")
+assert(cpu["sp"] is 1, "2NNN pushes the stack")
+chip8_execute(238)
+assert(cpu["pc"] is 600, "00EE returns")
+assert(cpu["sp"] is 0, "00EE pops the stack")
+
+# FX33 binary-coded decimal of 234 -> 2, 3, 4
+change cpu["I"] to 1000
+change cpu["V"][0] to 234
+chip8_execute(opc(15, 0, 51))
+assert(cpu["memory"][1000] is 2, "FX33 hundreds digit")
+assert(cpu["memory"][1001] is 3, "FX33 tens digit")
+assert(cpu["memory"][1002] is 4, "FX33 ones digit")
+
+# 00E0 clear screen
+change cpu["display"][5] to 1
+chip8_execute(224)
+assert(cpu["display"][5] is 0, "00E0 clears the display")
+
+# DXYN collision flag: drawing the same sprite twice erases it and sets VF
+chip8_init()
+change cpu["I"] to 80
+change cpu["V"][0] to 0
+change cpu["V"][1] to 0
+chip8_execute(op4(13, 0, 1, 5))
+assert(cpu["V"][15] is 0, "DXYN first draw, no collision")
+chip8_execute(op4(13, 0, 1, 5))
+assert(cpu["V"][15] is 1, "DXYN second draw collides")
+
+say "chip8 opcode tests passed"

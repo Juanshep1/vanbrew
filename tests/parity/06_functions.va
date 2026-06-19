@@ -1,0 +1,11 @@
+to fib(n)
+    if n is under 2
+        give back n
+    end
+    give back fib(n - 1) + fib(n - 2)
+end
+to greet(name)
+    give back "hi " + name
+end
+say text(fib(12))
+say greet("Sam")

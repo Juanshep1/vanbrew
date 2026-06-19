@@ -1,0 +1,48 @@
+# Inheritance, type checks, comprehensions, regular expressions, constants.
+
+type Shape
+    has name
+    to area()
+        give back 0
+    end
+    to describe()
+        give back me.name + " with area " + me.area()
+    end
+end
+
+type Square from Shape
+    has side
+    to setup(side)
+        change me.name to "square"
+        change me.side to side
+    end
+    to area()
+        give back me.side ^ 2
+    end
+end
+
+let s be new Square(4)
+assert(s.area() is 16, "overridden method")
+assert(s.describe() is "square with area 16", "inherited method calls the override")
+assert(s is a Square, "is a own type")
+assert(s is a Shape, "is a parent type")
+assert(is_a(s, Shape), "is_a builtin")
+
+# comprehensions
+assert(to_json([n * 2 for each n in [1, 2, 3]]) is "[2, 4, 6]", "comprehension map")
+assert(to_json([n for each n in [1, 2, 3, 4] if n is over 2]) is "[3, 4]", "comprehension filter")
+assert(to_json([c for each c in "hi"]) is "[\"h\", \"i\"]", "comprehension over text")
+
+# regular expressions
+assert(matches("abc123", "[0-9]+"), "regex matches")
+assert(not matches("abc", "[0-9]+"), "regex no match")
+assert(to_json(find_all("a1b2", "[0-9]")) is "[\"1\", \"2\"]", "regex find_all")
+assert(replace_all("a1b2", "[0-9]", "#") is "a#b#", "regex replace_all")
+
+# constants and dates
+assert(round(pi * 1000) is 3142, "pi constant")
+assert(floor(e) is 2, "e constant")
+assert(length(today()) is 10, "today is YYYY-MM-DD")
+assert(length(clock()) is 8, "clock is HH:MM:SS")
+
+say "advanced tests passed"

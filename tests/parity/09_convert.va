@@ -1,0 +1,3 @@
+say text(number("42") + 8)
+say "n=" + text(100)
+say text(typeof("hi")) + " " + text(typeof(5)) + " " + text(typeof([1])) + " " + text(typeof({"a": 1}))

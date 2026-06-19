@@ -1,0 +1,7 @@
+attempt
+    let n be number("notanumber")
+    say "got " + text(n)
+rescue
+    say "caught the error"
+end
+say "after"

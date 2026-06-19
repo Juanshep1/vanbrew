@@ -1,0 +1,5 @@
+say text(3 is over 2 and 2 is over 1)
+say text(1 is over 5 or 2 is under 3)
+say text(not (1 is 2))
+say text(3 is in [1, 2, 3])
+say text("lo" is in "hello")

@@ -650,6 +650,69 @@ to call_builtin(name, args)
     if name is "clock"
         give back {"hit": yes, "v": clock()}
     end
+    if name is "type_of"
+        give back {"hit": yes, "v": typeof(args[0])}
+    end
+    if name is "is_number"
+        give back {"hit": yes, "v": is_number(args[0])}
+    end
+    if name is "is_text"
+        give back {"hit": yes, "v": is_text(args[0])}
+    end
+    if name is "is_list"
+        give back {"hit": yes, "v": is_list(args[0])}
+    end
+    if name is "is_map"
+        give back {"hit": yes, "v": is_map(args[0])}
+    end
+    if name is "is_nothing"
+        give back {"hit": yes, "v": is_nothing(args[0])}
+    end
+    if name is "band"
+        give back {"hit": yes, "v": band(args[0], args[1])}
+    end
+    if name is "bor"
+        give back {"hit": yes, "v": bor(args[0], args[1])}
+    end
+    if name is "bxor"
+        give back {"hit": yes, "v": bxor(args[0], args[1])}
+    end
+    if name is "bnot"
+        give back {"hit": yes, "v": bnot(args[0])}
+    end
+    if name is "shift_left"
+        give back {"hit": yes, "v": shift_left(args[0], args[1])}
+    end
+    if name is "shift_right"
+        give back {"hit": yes, "v": shift_right(args[0], args[1])}
+    end
+    if name is "min"
+        give back {"hit": yes, "v": min(args[0])}
+    end
+    if name is "max"
+        give back {"hit": yes, "v": max(args[0])}
+    end
+    if name is "sum"
+        give back {"hit": yes, "v": sum(args[0])}
+    end
+    if name is "product"
+        give back {"hit": yes, "v": product(args[0])}
+    end
+    if name is "push"
+        give back {"hit": yes, "v": push(args[0], args[1])}
+    end
+    if name is "pop"
+        give back {"hit": yes, "v": pop(args[0])}
+    end
+    if name is "remove_at"
+        give back {"hit": yes, "v": remove_at(args[0], args[1])}
+    end
+    if name is "assert"
+        if length(args) is over 1
+            give back {"hit": yes, "v": assert(args[0], args[1])}
+        end
+        give back {"hit": yes, "v": assert(args[0], "")}
+    end
     if name is "fail"
         fail(args[0])
     end

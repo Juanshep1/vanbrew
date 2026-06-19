@@ -1,0 +1,81 @@
+# Game Boy CPU foundation — opcode unit tests (milestone 1).
+
+import "gameboy/cpu.va"
+
+# LD B, n  then  LD A, B
+gb_init()
+change gb["memory"][0] to 6        # LD B, n
+change gb["memory"][1] to 42
+change gb["memory"][2] to 120      # LD A, B  (0x78)
+change gb["pc"] to 0
+gb_step()
+assert(gb["b"] is 42, "LD r, n")
+gb_step()
+assert(gb["a"] is 42, "LD r, r")
+
+# XOR A clears A and sets Z
+gb_init()
+change gb["a"] to 99
+change gb["memory"][0] to 175      # XOR A (0xAF)
+change gb["pc"] to 0
+gb_step()
+assert(gb["a"] is 0, "XOR A clears A")
+assert(gb_flag("z") is 1, "XOR A sets Z")
+
+# INC B from 0xFF wraps to 0, sets Z and H
+gb_init()
+change gb["b"] to 255
+change gb["memory"][0] to 4        # INC B (0x04)
+change gb["pc"] to 0
+gb_step()
+assert(gb["b"] is 0, "INC wraps to 0")
+assert(gb_flag("z") is 1, "INC sets Z on wrap")
+assert(gb_flag("h") is 1, "INC sets H (half carry)")
+
+# ADD A, B with overflow sets carry
+gb_init()
+change gb["a"] to 200
+change gb["b"] to 100
+change gb["memory"][0] to 128      # ADD A, B (0x80)
+change gb["pc"] to 0
+gb_step()
+assert(gb["a"] is 44, "ADD wraps at 256")
+assert(gb_flag("c") is 1, "ADD sets carry")
+
+# JR -2 jumps back to itself
+gb_init()
+change gb["memory"][10] to 24      # JR e (0x18)
+change gb["memory"][11] to 254     # -2 as a signed byte
+change gb["pc"] to 10
+gb_step()
+assert(gb["pc"] is 10, "JR -2 is a self-loop")
+
+# CP A, B when equal sets Z and leaves A alone
+gb_init()
+change gb["a"] to 5
+change gb["b"] to 5
+change gb["memory"][0] to 184      # CP A, B (0xB8)
+change gb["pc"] to 0
+gb_step()
+assert(gb_flag("z") is 1, "CP equal sets Z")
+assert(gb["a"] is 5, "CP does not change A")
+
+# LD HL, nn  (16-bit immediate, little-endian)
+gb_init()
+change gb["memory"][0] to 33       # LD HL, nn (0x21)
+change gb["memory"][1] to 52       # low byte  0x34
+change gb["memory"][2] to 18       # high byte 0x12
+change gb["pc"] to 0
+gb_step()
+assert(gb_hl() is 4660, "LD HL, nn reads little-endian (0x1234)")
+
+# cartridge header parsing
+gb_init()
+change gb["memory"][308] to 65     # 'A'
+change gb["memory"][309] to 66     # 'B'
+change gb["memory"][327] to 0      # cartridge type: ROM only
+let info be gb_header(gb["memory"])
+assert(info["title"] is "AB", "header title")
+assert(info["cartridge_type"] is 0, "header cartridge type")
+
+say "gameboy opcode tests passed"

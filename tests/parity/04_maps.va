@@ -1,0 +1,5 @@
+let m be {"name": "Vanta", "age": 1}
+say m["name"] + " " + text(m["age"])
+change m at "age" to 2
+say text(m["age"])
+say text(keys(m))

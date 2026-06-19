@@ -1,0 +1,5 @@
+let m be {"a": 1, "b": [2, 3]}
+let s be to_json(m)
+say s
+let parsed be from_json(s)
+say text(parsed["b"][1])

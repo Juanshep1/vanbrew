@@ -1,0 +1,11 @@
+let s be "Hello World"
+say uppercase(s)
+say lowercase(s)
+say text(length(s))
+say slice(s, 0, 5)
+say replace(s, "World", "Vanta")
+say join(split(s, " "), "-")
+say text(starts_with(s, "Hello"))
+say text(contains(s, "lo W"))
+say trim("  hi  ")
+say reverse("abc")

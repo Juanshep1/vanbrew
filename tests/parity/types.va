@@ -1,0 +1,42 @@
+# User-defined types: fields, methods, the 'me' reference, nested updates.
+
+type Counter
+    has count
+    to setup()
+        change me.count to 0
+    end
+    to bump()
+        change me.count to me.count + 1
+    end
+    to value()
+        give back me.count
+    end
+end
+
+let c be new Counter()
+c.bump()
+c.bump()
+c.bump()
+assert(c.value() is 3, "method updates state")
+assert(type_of(c) is "Counter", "type_of instance")
+
+type Point
+    has x
+    has y
+    to distance_squared()
+        give back me.x ^ 2 + me.y ^ 2
+    end
+end
+
+let p be new Point(3, 4)
+assert(p.x is 3, "field access")
+assert(p.distance_squared() is 25, "method math")
+change p.x to 6
+assert(p.x is 6, "field assignment")
+
+# nested data assignment through maps and lists
+let data be { "user": { "scores": [1, 2, 3] } }
+change data["user"]["scores"][1] to 99
+assert(data["user"]["scores"][1] is 99, "deep nested assignment")
+
+say "type tests passed"

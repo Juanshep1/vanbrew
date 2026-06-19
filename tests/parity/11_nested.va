@@ -1,0 +1,12 @@
+let grid be [[1, 2], [3, 4]]
+say text(grid[1][0])
+let people be []
+add {"n": "A", "score": 10} to people
+add {"n": "B", "score": 20} to people
+let best be 0
+for each p in people
+    if p["score"] is over best
+        change best to p["score"]
+    end
+end
+say "best=" + text(best)

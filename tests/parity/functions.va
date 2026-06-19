@@ -1,0 +1,41 @@
+# Functions: recursion, default arguments, first-class values.
+
+to fact(n)
+    if n is at most 1
+        give back 1
+    end
+    give back n * fact(n minus 1)
+end
+
+to fib(n)
+    if n is under 2
+        give back n
+    end
+    give back fib(n - 1) + fib(n - 2)
+end
+
+to greet(who, greeting be "Hi")
+    give back greeting + " " + who
+end
+
+to triple(n)
+    give back n * 3
+end
+
+to apply_to(fn, value)
+    give back fn(value)
+end
+
+assert(fact(5) is 120, "recursion factorial")
+assert(fib(10) is 55, "recursion fibonacci")
+assert(greet("Sam") is "Hi Sam", "default argument used")
+assert(greet("Sam", "Yo") is "Yo Sam", "default argument overridden")
+
+let f be triple
+assert(f(4) is 12, "function stored in variable")
+assert(is_function(triple), "is_function on user function")
+assert(is_function(uppercase), "is_function on builtin")
+assert(apply_to(triple, 5) is 15, "function passed as argument")
+assert(apply_to(uppercase, "hi") is "HI", "builtin passed as argument")
+
+say "function tests passed"

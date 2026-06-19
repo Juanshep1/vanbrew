@@ -1,0 +1,15 @@
+let n be 7
+if n is over 10
+    say "big"
+otherwise if n is over 5
+    say "medium"
+otherwise
+    say "small"
+end
+let i be 0
+let out be ""
+while i is under 3
+    change out to out + text(i)
+    change i to i + 1
+end
+say out

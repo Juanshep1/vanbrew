@@ -1,0 +1,7 @@
+to apply_twice(f, x)
+    give back f(f(x))
+end
+to inc(n)
+    give back n + 1
+end
+say text(apply_twice(inc, 10))

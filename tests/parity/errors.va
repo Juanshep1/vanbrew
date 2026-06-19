@@ -1,0 +1,34 @@
+# Error handling: attempt / rescue, fail, assert.
+
+let caught be no
+attempt
+    fail("boom")
+rescue problem
+    change caught to yes
+    assert(problem is "boom", "rescue receives the message")
+end
+assert(caught, "rescue body ran")
+
+attempt
+    let bad be [1, 2][10]
+rescue e
+    assert(contains(e, "outside"), "runtime error is catchable")
+end
+
+let divided be no
+attempt
+    let x be 10 / 0
+rescue e
+    change divided to yes
+end
+assert(divided, "divide-by-zero is catchable")
+
+# a failed assert is itself a catchable error
+attempt
+    assert(no, "expected failure")
+    fail("this line should never run")
+rescue e
+    assert(e is "expected failure", "assert raises its message")
+end
+
+say "error tests passed"

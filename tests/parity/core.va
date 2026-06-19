@@ -1,0 +1,41 @@
+# Core language: arithmetic, comparisons, logic, text, interpolation.
+
+assert(2 + 3 is 5, "add")
+assert(10 - 4 is 6, "sub")
+assert(6 * 7 is 42, "mul")
+assert(10 / 4 is 2.5, "div")
+assert(10 % 3 is 1, "mod")
+assert(2 ^ 8 is 256, "power")
+assert(2 plus 3 times 4 is 14, "precedence")
+assert((2 plus 3) times 4 is 20, "parens")
+assert(-3 + 5 is 2, "unary minus")
+
+assert(sqrt(81) is 9, "sqrt")
+assert(abs(-5) is 5, "abs")
+assert(min(3, 1, 2) is 1, "min args")
+assert(max([3, 9, 2]) is 9, "max list")
+assert(round(3.6) is 4, "round")
+assert(floor(3.9) is 3, "floor")
+assert(ceil(3.1) is 4, "ceil")
+
+assert(5 is over 3, "greater")
+assert(3 is at most 3, "at most")
+assert(yes and not no, "and / not")
+assert(no or yes, "or")
+assert(not (1 is 2), "not equal")
+
+assert(uppercase("abc") is "ABC", "uppercase")
+assert(lowercase("ABC") is "abc", "lowercase")
+assert(trim("  hi  ") is "hi", "trim")
+assert(replace("a-b", "-", "+") is "a+b", "replace")
+assert(starts_with("vanta", "van"), "starts_with")
+assert(ends_with("vanta", "ta"), "ends_with")
+assert(length("hello") is 5, "text length")
+assert(pad_left("7", 3, "0") is "007", "pad_left")
+
+let who be "Sam"
+let n be 3
+assert("hi {who}, {n + 1}" is "hi Sam, 4", "interpolation")
+assert(length("{{x}}") is 3, "literal braces unescape correctly")
+
+say "core tests passed"

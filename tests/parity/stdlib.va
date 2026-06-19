@@ -1,0 +1,30 @@
+# The standard-library modules, reached through the module search path.
+
+import "text"
+import "lists"
+import "math"
+
+# text
+assert(capitalize("hello") is "Hello", "capitalize")
+assert(title_case("the quick fox") is "The Quick Fox", "title_case")
+assert(repeat_text("ab", 3) is "ababab", "repeat_text")
+assert(count_text("a.b.c", ".") is 2, "count_text")
+assert(is_blank("   "), "is_blank")
+
+# lists
+assert(sum([1, 2, 3, 4]) is 10, "sum")
+assert(average([2, 4, 6]) is 4, "average")
+assert(to_json(unique([1, 1, 2, 3, 3])) is "[1, 2, 3]", "unique")
+assert(to_json(take([1, 2, 3, 4], 2)) is "[1, 2]", "take")
+assert(to_json(flatten([[1, 2], [3], [4, 5]])) is "[1, 2, 3, 4, 5]", "flatten")
+assert(to_json(zip_with(add_two, [1, 2, 3], [10, 20, 30])) is "[11, 22, 33]", "zip_with")
+
+# math
+assert(clamp(15, 0, 10) is 10, "clamp high")
+assert(clamp(-5, 0, 10) is 0, "clamp low")
+assert(gcd(12, 18) is 6, "gcd")
+assert(factorial(5) is 120, "factorial")
+assert(is_prime(17), "is_prime yes")
+assert(not is_prime(18), "is_prime no")
+
+say "stdlib tests passed"

@@ -1,0 +1,22 @@
+# Bitwise builtins (the foundation for the emulators).
+
+assert(band(12, 10) is 8, "band")
+assert(bor(12, 10) is 14, "bor")
+assert(bxor(12, 10) is 6, "bxor")
+assert(bnot(0, 8) is 255, "bnot 8-bit of 0")
+assert(bnot(255, 8) is 0, "bnot 8-bit of 255")
+assert(shift_left(1, 4) is 16, "shift_left")
+assert(shift_right(255, 4) is 15, "shift_right")
+
+# the kind of nibble decoding a CPU does
+let op be 45290         # 0xB0EA
+assert(band(shift_right(op, 12), 15) is 11, "top nibble")
+assert(band(op, 255) is 234, "low byte")
+assert(bor(shift_left(176, 8), 234) is op, "recombine bytes")
+
+# chr / code (number <-> character), used by the Game Boy header parser
+assert(chr(65) is "A", "chr")
+assert(code("A") is 65, "code")
+assert(chr(code("z")) is "z", "chr and code round-trip")
+
+say "bitwise tests passed"

@@ -1,0 +1,35 @@
+# The web builtins — HTTP client, HTTP server, and helpers.
+# (The live server round-trip is covered by tools/server_headless.py; here we
+#  check the pure helpers and that the networking builtins are present.)
+
+assert(url_encode("a b&c") is "a%20b%26c", "url_encode")
+assert(url_decode("a%20b%26c") is "a b&c", "url_decode")
+assert(url_decode(url_encode("hello world/?x=1")) is "hello world/?x=1", "url round-trip")
+
+assert(html_escape("<b>") is "&lt;b&gt;", "html_escape tags")
+assert(html_escape("a & b") is "a &amp; b", "html_escape amp")
+assert(html_escape("say \"hi\"") is "say &quot;hi&quot;", "html_escape quotes")
+
+# a request handler is just a function: request map in, page out
+to handle(req)
+    let path be req["path"]
+    if path is "/"
+        give back "<h1>home</h1>"
+    end
+    give back {"status": 404, "body": "missing"}
+end
+
+let home be {"method": "GET", "path": "/", "query": {}, "headers": {}, "body": ""}
+assert(handle(home) is "<h1>home</h1>", "handler home page")
+let other be {"method": "GET", "path": "/nope", "query": {}, "headers": {}, "body": ""}
+let resp be handle(other)
+assert(resp["status"] is 404, "handler 404")
+
+# the networking builtins exist and are first-class
+assert(is_function(http_get), "http_get present")
+assert(is_function(http_post), "http_post present")
+assert(is_function(http_request), "http_request present")
+assert(is_function(serve), "serve present")
+assert(is_function(sleep), "sleep present")
+
+say "web tests passed"

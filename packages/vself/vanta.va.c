@@ -39,8 +39,8 @@ static char* tostr(Value v){
   if(v.t==TN) return numstr(v.n);
   if(v.t==TB) return v.n!=0?"yes":"no";
   if(v.t==TX) return "nothing";
-  if(v.t==TL){ long cap=256,len=1; char* o=galloc(cap); o[0]='['; for(long i=0;i<v.l->len;i++){ char* p=tostr(v.l->items[i]); long lp=strlen(p); long need=len+lp+4; if(need>cap){ cap=need*2; o=grealloc(o,cap);} if(i){ o[len++]=','; o[len++]=' '; } memcpy(o+len,p,lp); len+=lp; } o[len++]=']'; o[len]=0; return o; }
-  if(v.t==TM){ long cap=256,len=1; char* o=galloc(cap); o[0]='{'; for(long i=0;i<v.m->len;i++){ char* k=v.m->keys[i]; char* p=tostr(v.m->vals[i]); long lk=strlen(k),lp=strlen(p); long need=len+lk+lp+6; if(need>cap){ cap=need*2; o=grealloc(o,cap);} if(i){ o[len++]=','; o[len++]=' '; } memcpy(o+len,k,lk); len+=lk; o[len++]=':'; o[len++]=' '; memcpy(o+len,p,lp); len+=lp; } o[len++]='}'; o[len]=0; return o; }
+  if(v.t==TL){ long cap=256,len=1; char* o=galloc(cap); o[0]='['; for(long i=0;i<v.l->len;i++){ Value e=v.l->items[i]; char* p=tostr(e); long lp=strlen(p); int q=(e.t==TS); long need=len+lp+6; if(need>cap){ cap=need*2; o=grealloc(o,cap);} if(i){ o[len++]=','; o[len++]=' '; } if(q)o[len++]='"'; memcpy(o+len,p,lp); len+=lp; if(q)o[len++]='"'; } o[len++]=']'; o[len]=0; return o; }
+  if(v.t==TM){ long cap=256,len=1; char* o=galloc(cap); o[0]='{'; for(long i=0;i<v.m->len;i++){ char* k=v.m->keys[i]; Value vv=v.m->vals[i]; char* p=tostr(vv); long lk=strlen(k),lp=strlen(p); int q=(vv.t==TS); long need=len+lk+lp+8; if(need>cap){ cap=need*2; o=grealloc(o,cap);} if(i){ o[len++]=','; o[len++]=' '; } o[len++]='"'; memcpy(o+len,k,lk); len+=lk; o[len++]='"'; o[len++]=':'; o[len++]=' '; if(q)o[len++]='"'; memcpy(o+len,p,lp); len+=lp; if(q)o[len++]='"'; } o[len++]='}'; o[len]=0; return o; }
   return "";
 }
 static int truthy(Value v){ if(v.t==TX) return 0; if(v.t==TB) return v.n!=0; return 1; }
@@ -111,7 +111,7 @@ static Value B_url_decode(Value v){ char* s=tostr(v); long n=strlen(s); char* o=
 static Value B_url_encode(Value v){ char* s=tostr(v); long n=strlen(s); char* o=malloc(n*3+1); long j=0; for(long i=0;i<n;i++){ unsigned char c=s[i]; if((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='-'||c=='_'||c=='.'||c=='~') o[j++]=c; else { sprintf(o+j,"%%%02X",c); j+=3; } } o[j]=0; Value r=STR(o); free(o); return r; }
 static Value B_html_escape(Value v){ char* s=tostr(v); char* o=malloc(strlen(s)*6+1); char* w=o; for(char* p=s;*p;p++){ if(*p=='<'){strcpy(w,"&lt;");w+=4;} else if(*p=='>'){strcpy(w,"&gt;");w+=4;} else if(*p=='&'){strcpy(w,"&amp;");w+=5;} else if(*p=='"'){strcpy(w,"&quot;");w+=6;} else *w++=*p; } *w=0; Value r=STR(o); free(o); return r; }
 static void json_str(char** out,long* cap,long* len,const char* s){ long need=*len+strlen(s)*6+4; if(need>*cap){*cap=need*2;*out=realloc(*out,*cap);} char* w=*out+*len; *w++='"'; for(const char* p=s;*p;p++){ unsigned char c=*p; if(c=='"'){*w++='\\';*w++='"';} else if(c=='\\'){*w++='\\';*w++='\\';} else if(c=='\n'){*w++='\\';*w++='n';} else if(c=='\t'){*w++='\\';*w++='t';} else if(c=='\r'){*w++='\\';*w++='r';} else if(c<0x20){sprintf(w,"\\u%04x",c);w+=6;} else *w++=c; } *w++='"'; *w=0; *len=w-*out; }
-static void to_json_rec(Value v,char** out,long* cap,long* len){ if(*len+64>*cap){*cap=(*len+64)*2;*out=realloc(*out,*cap);} if(v.t==TS){json_str(out,cap,len,v.s);return;} if(v.t==TN){char* ns=numstr(v.n);strcpy(*out+*len,ns);*len+=strlen(ns);free(ns);return;} if(v.t==TB){const char* b=v.n!=0?"true":"false";strcpy(*out+*len,b);*len+=strlen(b);return;} if(v.t==TX){strcpy(*out+*len,"null");*len+=4;return;} if(v.t==TL){(*out)[(*len)++]='['; for(long i=0;i<v.l->len;i++){ if(i)(*out)[(*len)++]=','; to_json_rec(v.l->items[i],out,cap,len);} if(*len+2>*cap){*cap=*len+2;*out=realloc(*out,*cap);} (*out)[(*len)++]=']'; (*out)[*len]=0; return;} if(v.t==TM){(*out)[(*len)++]='{'; for(long i=0;i<v.m->len;i++){ if(i)(*out)[(*len)++]=','; json_str(out,cap,len,v.m->keys[i]); (*out)[(*len)++]=':'; to_json_rec(v.m->vals[i],out,cap,len);} if(*len+2>*cap){*cap=*len+2;*out=realloc(*out,*cap);} (*out)[(*len)++]='}'; (*out)[*len]=0; return;} }
+static void to_json_rec(Value v,char** out,long* cap,long* len){ if(*len+64>*cap){*cap=(*len+64)*2;*out=realloc(*out,*cap);} if(v.t==TS){json_str(out,cap,len,v.s);return;} if(v.t==TN){char* ns=numstr(v.n);strcpy(*out+*len,ns);*len+=strlen(ns);free(ns);return;} if(v.t==TB){const char* b=v.n!=0?"true":"false";strcpy(*out+*len,b);*len+=strlen(b);return;} if(v.t==TX){strcpy(*out+*len,"null");*len+=4;return;} if(v.t==TL){(*out)[(*len)++]='['; for(long i=0;i<v.l->len;i++){ if(i){if(*len+2>*cap){*cap=(*len+2)*2;*out=realloc(*out,*cap);}(*out)[(*len)++]=',';(*out)[(*len)++]=' ';} to_json_rec(v.l->items[i],out,cap,len);} if(*len+2>*cap){*cap=*len+2;*out=realloc(*out,*cap);} (*out)[(*len)++]=']'; (*out)[*len]=0; return;} if(v.t==TM){(*out)[(*len)++]='{'; for(long i=0;i<v.m->len;i++){ if(i){if(*len+2>*cap){*cap=(*len+2)*2;*out=realloc(*out,*cap);}(*out)[(*len)++]=',';(*out)[(*len)++]=' ';} json_str(out,cap,len,v.m->keys[i]); if(*len+2>*cap){*cap=(*len+2)*2;*out=realloc(*out,*cap);}(*out)[(*len)++]=':';(*out)[(*len)++]=' '; to_json_rec(v.m->vals[i],out,cap,len);} if(*len+2>*cap){*cap=*len+2;*out=realloc(*out,*cap);} (*out)[(*len)++]='}'; (*out)[*len]=0; return;} }
 static Value B_to_json(Value v){ long cap=256,len=0; char* o=malloc(cap); o[0]=0; to_json_rec(v,&o,&cap,&len); o[len]=0; Value r=STR(o); free(o); return r; }
 static Value jparse(const char* s,long* i);
 static void jws(const char* s,long* i){ while(s[*i]==' '||s[*i]=='\t'||s[*i]=='\n'||s[*i]=='\r')(*i)++; }
@@ -144,10 +144,30 @@ static Value parse_query(const char* q){ Value m=MAP0(); if(!q||!*q)return m; ch
 static char* ci_strstr(const char* h, const char* n){ if(!*n) return (char*)h; for(; *h; h++){ const char* a=h; const char* b=n; while(*a && *b && tolower((unsigned char)*a)==tolower((unsigned char)*b)){ a++; b++; } if(!*b) return (char*)h; } return 0; }
 static char* recv_request(int c,long* blen){ long cap=8192,len=0; char* buf=malloc(cap); for(;;){ if(len+4096>=cap){cap*=2;buf=realloc(buf,cap);} long r=recv(c,buf+len,4096,0); if(r<=0)break; len+=r; buf[len]=0; char* he=strstr(buf,"\r\n\r\n"); if(he){ long hlen=he-buf+4; char* cl=ci_strstr(buf,"content-length:"); long want=cl?atol(cl+15):0; while((long)(len-hlen)<want){ if(len+4096>=cap){cap*=2;buf=realloc(buf,cap);} long r2=recv(c,buf+len,4096,0); if(r2<=0)break; len+=r2; } buf[len]=0; break; } } *blen=len; return buf; }
 static Value parse_request(char* raw){ Value req=MAP0(); char* nl=strstr(raw,"\r\n"); if(!nl)return req; *nl=0; char* method=raw; char* sp=strchr(raw,' '); if(!sp)return req; *sp=0; char* target=sp+1; char* sp2=strchr(target,' '); if(sp2)*sp2=0; char* q=strchr(target,'?'); char* query=""; if(q){*q=0;query=q+1;} mapset(req,STR("method"),STR(method)); mapset(req,STR("path"),B_url_decode(STR(target))); mapset(req,STR("query"),parse_query(query)); Value hdrs=MAP0(); char* he=strstr(nl+2,"\r\n\r\n"); char* line=nl+2; while(line&&he&&line<he){ char* eol=strstr(line,"\r\n"); if(!eol||eol>he)break; *eol=0; char* col=strchr(line,':'); if(col){*col=0; char* val=col+1; while(*val==' ')val++; mapset(hdrs,STR(line),STR(val));} line=eol+2; } mapset(req,STR("headers"),hdrs); mapset(req,STR("body"),STR(he?he+4:"")); return req; }
-static Value B_typeof(Value v){ if(v.t==TS)return STR("string"); if(v.t==TN)return STR("number"); if(v.t==TB)return STR("bool"); if(v.t==TL)return STR("list"); if(v.t==TM)return STR("map"); return STR("nothing"); }
+static Value B_typeof(Value v){ if(v.t==TS)return STR("text"); if(v.t==TN)return STR("number"); if(v.t==TB)return STR("bool"); if(v.t==TL)return STR("list"); if(v.t==TM)return STR("map"); return STR("nothing"); }
 static Value B_tcp_listen(Value pv){ int srv=socket(AF_INET,SOCK_STREAM,0); int opt=1; setsockopt(srv,SOL_SOCKET,SO_REUSEADDR,&opt,sizeof opt); struct sockaddr_in a; memset(&a,0,sizeof a); a.sin_family=AF_INET; a.sin_addr.s_addr=INADDR_ANY; a.sin_port=htons((long)pv.n); if(bind(srv,(struct sockaddr*)&a,sizeof a)<0) return NUM(-1); listen(srv,64); return NUM(srv); }
 static Value B_accept_req(Value sv){ int c=accept((int)sv.n,0,0); if(c<0) return NIL(); long bl; char* raw=recv_request(c,&bl); Value req=(raw&&bl>0)?parse_request(raw):NIL(); if(req.t==TM) mapset(req,STR("_conn"),NUM(c)); if(raw) free(raw); return req; }
 static Value B_respond(Value req, Value resp){ Value cv=INDEX(req,STR("_conn")); int c=(cv.t==TN)?(int)cv.n:-1; if(c<0) return NIL(); long status=200; char* body=""; char* ctype="text/html; charset=utf-8"; Value xh=NIL(); if(resp.t==TS){ body=resp.s; } else if(resp.t==TM){ Value st=INDEX(resp,STR("status")); if(st.t==TN)status=(long)st.n; Value bd=INDEX(resp,STR("body")); if(bd.t==TM||bd.t==TL){ body=tostr(B_to_json(bd)); ctype="application/json"; } else if(bd.t!=TX) body=tostr(bd); Value ty=INDEX(resp,STR("type")); if(ty.t==TS)ctype=ty.s; xh=INDEX(resp,STR("headers")); } char head[4096]; long bl2=strlen(body); int hn=snprintf(head,sizeof head,"HTTP/1.1 %ld OK\r\nContent-Type: %s\r\nContent-Length: %ld\r\nConnection: close\r\n",status,ctype,bl2); if(xh.t==TM){ for(long i=0;i<xh.m->len;i++) hn+=snprintf(head+hn,sizeof head-hn,"%s: %s\r\n",xh.m->keys[i],tostr(xh.m->vals[i])); } hn+=snprintf(head+hn,sizeof head-hn,"\r\n"); write(c,head,hn); write(c,body,bl2); close(c); return NIL(); }
+static Value B_assert(Value c, Value msg){ if(!truthy(c)){ fprintf(stderr,"assertion failed: %s\n", tostr(msg)); exit(1);} return NIL(); }
+static Value B_is_number(Value v){ return BOOLV(v.t==TN); }
+static Value B_is_text(Value v){ return BOOLV(v.t==TS); }
+static Value B_is_list(Value v){ return BOOLV(v.t==TL); }
+static Value B_is_map(Value v){ return BOOLV(v.t==TM); }
+static Value B_is_nothing(Value v){ return BOOLV(v.t==TX); }
+static Value B_is_bool(Value v){ return BOOLV(v.t==TB); }
+static Value B_band(Value a, Value b){ return NUM((double)((long)a.n & (long)b.n)); }
+static Value B_bor(Value a, Value b){ return NUM((double)((long)a.n | (long)b.n)); }
+static Value B_bxor(Value a, Value b){ return NUM((double)((long)a.n ^ (long)b.n)); }
+static Value B_bnot(Value a){ return NUM((double)(~(long)a.n)); }
+static Value B_shl(Value a, Value b){ return NUM((double)((long)a.n << (long)b.n)); }
+static Value B_shr(Value a, Value b){ return NUM((double)((long)a.n >> (long)b.n)); }
+static Value B_minl(Value v){ if(v.t!=TL||v.l->len==0) return NIL(); Value m=v.l->items[0]; for(long i=1;i<v.l->len;i++) if(v.l->items[i].n<m.n) m=v.l->items[i]; return m; }
+static Value B_maxl(Value v){ if(v.t!=TL||v.l->len==0) return NIL(); Value m=v.l->items[0]; for(long i=1;i<v.l->len;i++) if(v.l->items[i].n>m.n) m=v.l->items[i]; return m; }
+static Value B_suml(Value v){ double s=0; if(v.t==TL) for(long i=0;i<v.l->len;i++) s+=v.l->items[i].n; return NUM(s); }
+static Value B_productl(Value v){ double s=1; if(v.t==TL) for(long i=0;i<v.l->len;i++) s*=v.l->items[i].n; return NUM(s); }
+static Value B_push(Value lst, Value x){ if(lst.t==TL) listpush(lst,x); return lst; }
+static Value B_pop(Value lst){ if(lst.t==TL && lst.l->len>0) return lst.l->items[--lst.l->len]; return NIL(); }
+static Value B_remove_at(Value lst, Value iv){ if(lst.t==TL){ long i=(long)iv.n; if(i>=0&&i<lst.l->len){ for(long j=i;j<lst.l->len-1;j++) lst.l->items[j]=lst.l->items[j+1]; lst.l->len--; } } return lst; }
 static Value vc_serve(long port, Value(*handler)(Value)){ int srv=socket(AF_INET,SOCK_STREAM,0); int opt=1; setsockopt(srv,SOL_SOCKET,SO_REUSEADDR,&opt,sizeof opt); struct sockaddr_in a; memset(&a,0,sizeof a); a.sin_family=AF_INET; a.sin_addr.s_addr=INADDR_ANY; a.sin_port=htons(port); if(bind(srv,(struct sockaddr*)&a,sizeof a)<0){perror("bind");return NIL();} listen(srv,64); printf("Vanta native server on http://localhost:%ld\n",port); fflush(stdout); g_in_req=1;
   for(;;){ ebb(); int c=accept(srv,0,0); if(c<0)continue; long blen; char* raw=recv_request(c,&blen); if(raw&&blen>0){ Value req=parse_request(raw); Value resp=handler(req); long status=200; char* body=""; char* ctype="text/html; charset=utf-8"; Value xh=NIL();
         if(resp.t==TS){ body=resp.s; } else if(resp.t==TM){ Value st=INDEX(resp,STR("status")); if(st.t==TN)status=(long)st.n; Value bd=INDEX(resp,STR("body")); if(bd.t==TM||bd.t==TL){ body=tostr(B_to_json(bd)); ctype="application/json"; } else if(bd.t!=TX) body=tostr(bd); Value ty=INDEX(resp,STR("type")); if(ty.t==TS)ctype=ty.s; xh=INDEX(resp,STR("headers")); }
@@ -909,6 +929,69 @@ Value v_call_builtin(Value v_name, Value v_args) {
     }
     if (truthy(EQ(v_name, STR("clock")))) {
         return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_clock());
+    }
+    if (truthy(EQ(v_name, STR("type_of")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_typeof(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("is_number")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_is_number(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("is_text")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_is_text(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("is_list")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_is_list(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("is_map")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_is_map(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("is_nothing")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_is_nothing(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("band")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_band(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
+    }
+    if (truthy(EQ(v_name, STR("bor")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_bor(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
+    }
+    if (truthy(EQ(v_name, STR("bxor")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_bxor(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
+    }
+    if (truthy(EQ(v_name, STR("bnot")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_bnot(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("shift_left")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_shl(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
+    }
+    if (truthy(EQ(v_name, STR("shift_right")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_shr(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
+    }
+    if (truthy(EQ(v_name, STR("min")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_minl(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("max")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_maxl(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("sum")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_suml(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("product")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_productl(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("push")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_push(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
+    }
+    if (truthy(EQ(v_name, STR("pop")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_pop(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("remove_at")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_remove_at(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
+    }
+    if (truthy(EQ(v_name, STR("assert")))) {
+        if (truthy(GT(B_length(v_args), NUM(1)))) {
+            return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_assert(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
+        }
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_assert(INDEX(v_args, NUM(0)), STR("")));
     }
     if (truthy(EQ(v_name, STR("fail")))) {
         B_fail(INDEX(v_args, NUM(0)));

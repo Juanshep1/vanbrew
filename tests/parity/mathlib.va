@@ -1,0 +1,28 @@
+# New math builtins and the random library module.
+
+import "random"
+import "math"
+
+# math builtins
+assert(round(sin(0)) is 0, "sin(0)")
+assert(round(cos(0)) is 1, "cos(0)")
+assert(round(exp(0)) is 1, "exp(0)")
+assert(round(log(exp(1))) is 1, "log of e")
+assert(sum([1, 2, 3, 4]) is 10, "sum builtin")
+assert(product([1, 2, 3, 4]) is 24, "product builtin")
+assert(round(hypotenuse(3, 4)) is 5, "hypotenuse from math lib")
+assert(round(to_degrees(pi)) is 180, "radians to degrees")
+
+# random library: check properties, not exact values
+let original be [1, 2, 3, 4, 5]
+let mixed be shuffle(original)
+assert(length(mixed) is 5, "shuffle keeps length")
+assert(to_json(sort(mixed)) is "[1, 2, 3, 4, 5]", "shuffle keeps the same items")
+assert(to_json(original) is "[1, 2, 3, 4, 5]", "shuffle leaves the original alone")
+assert(choice(original) is in original, "choice returns a member")
+assert(length(sample(original, 3)) is 3, "sample returns n items")
+
+let r be roll(6)
+assert(r is at least 1 and r is at most 6, "roll is in range")
+
+say "math and random tests passed"
