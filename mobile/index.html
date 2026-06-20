@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1020">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vanta">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icon.svg">
+<title>Vanta</title>
+<style>
+  :root{ --bg:#0e1020; --panel:#161a30; --line:#262c4a; --ink:#e6e9f5; --dim:#8a93b8; --mint:#7cf0c8; --gold:#ffd479; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; height:100%; overflow:hidden; }
+  body{
+    background:var(--bg); color:var(--ink);
+    font:15px ui-monospace,SFMono-Regular,Menlo,monospace;
+    display:flex; flex-direction:column;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  header{ padding:14px 18px 10px; display:flex; align-items:center; gap:10px; }
+  .logo{ width:30px;height:30px;border-radius:8px;background:var(--panel);color:var(--mint);
+         display:grid;place-items:center;font-weight:800;font-size:20px; }
+  h1{ margin:0; font-size:18px; } .sub{ color:var(--dim); font-size:11px; margin-top:1px; }
+  .chips{ display:flex; gap:8px; padding:0 14px 10px; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .chip{ flex:0 0 auto; background:var(--panel); color:var(--dim); border:1px solid var(--line);
+         border-radius:999px; padding:7px 14px; font-size:13px; }
+  .chip:active{ background:#202540; color:var(--ink); }
+  .editor{ flex:1 1 55%; min-height:0; display:flex; flex-direction:column; }
+  .out{ flex:1 1 45%; min-height:0; display:flex; flex-direction:column; border-top:1px solid var(--line); }
+  .label{ padding:6px 16px; color:var(--dim); font-size:11px; letter-spacing:.08em; text-transform:uppercase; }
+  textarea{
+    flex:1; width:100%; background:transparent; color:var(--ink); border:0; outline:0;
+    padding:4px 16px 14px; resize:none; font:16px/1.6 ui-monospace,Menlo,monospace; /* 16px stops iOS zoom */
+    tab-size:4; -webkit-appearance:none;
+  }
+  pre{ flex:1; margin:0; padding:4px 16px 16px; overflow:auto; color:var(--mint);
+       white-space:pre-wrap; line-height:1.55; -webkit-overflow-scrolling:touch; }
+  pre .err{ color:#ff8b8b; }
+  footer{ padding:10px 14px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid var(--line);
+          display:flex; gap:10px; align-items:center; }
+  #run{ flex:1; background:var(--mint); color:#06251c; border:0; border-radius:12px;
+        padding:15px; font:700 17px ui-monospace,Menlo,monospace; }
+  #run:disabled{ opacity:.5; }
+  #clear{ background:var(--panel); color:var(--dim); border:1px solid var(--line);
+          border-radius:12px; padding:15px 18px; font:600 15px ui-monospace,Menlo,monospace; }
+  #install{ display:none; background:var(--panel); color:var(--gold); border:1px solid var(--line);
+            border-radius:12px; padding:15px 16px; font-size:14px; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="logo">V</div>
+    <div><h1>Vanta</h1><div class="sub">runs on your phone &middot; on-device &middot; offline</div></div>
+  </header>
+  <div class="chips" id="chips"></div>
+  <div class="editor">
+    <div class="label">program.va</div>
+    <textarea id="code" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off"></textarea>
+  </div>
+  <div class="out">
+    <div class="label">output</div>
+    <pre id="output">tap Run ▶</pre>
+  </div>
+  <footer>
+    <button id="run">▶ Run</button>
+    <button id="clear">Clear</button>
+    <button id="install">Install</button>
+  </footer>
+  <script src="vanta.js"></script>
+  <script>
+    const code = document.getElementById('code'), out = document.getElementById('output');
+    const runBtn = document.getElementById('run');
+
+    const EXAMPLES = {
+      "Hello":   'say "hello " + text(6 * 7)',
+      "Fib":     'to fib(n)\n    if n is under 2\n        give back n\n    end\n    give back fib(n - 1) + fib(n - 2)\nend\nsay "fib(20) = " + text(fib(20))',
+      "Lambdas": 'let squares be map(make n give n * n, [1, 2, 3, 4, 5])\nsay text(squares)\nsay text(keep(make n give n % 2 is 0, range(1, 11)))',
+      "Words":   'say text(2 plus 3 times 4)\nlet n be 10\nincrease n by 5\nsay "n is now " + text(n)',
+      "Map":     'let who be {"name": "Vanta", "runs": "on your phone"}\nsay who["name"] + " " + who["runs"] + "!"'
+    };
+    code.value = EXAMPLES["Hello"];
+    const chips = document.getElementById('chips');
+    for (const name in EXAMPLES) {
+      const b = document.createElement('button'); b.className = 'chip'; b.textContent = name;
+      b.onclick = () => { code.value = EXAMPLES[name]; run(); };
+      chips.appendChild(b);
+    }
+
+    async function run(){
+      runBtn.disabled = true; out.textContent = ''; out.classList.remove('err');
+      try {
+        const M = await VantaModule({ print: t => out.textContent += t + "\n",
+                                      printErr: e => out.textContent += e + "\n" });
+        M.FS.writeFile('/in.va', code.value);
+        M.callMain(['/in.va']);
+        if (!out.textContent.trim()) out.textContent = '(no output)';
+      } catch(e){ out.innerHTML += '<span class="err">\n[error] ' + (e.message||e) + '</span>'; }
+      runBtn.disabled = false;
+    }
+    runBtn.onclick = run;
+    document.getElementById('clear').onclick = () => { code.value=''; out.textContent='tap Run ▶'; code.focus(); };
+
+    // install prompt (Android/desktop Chrome)
+    let deferred;
+    const installBtn = document.getElementById('install');
+    window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; installBtn.style.display='block'; });
+    installBtn.onclick = async () => { if(!deferred) return; deferred.prompt(); await deferred.userChoice; deferred=null; installBtn.style.display='none'; };
+
+    // offline service worker
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  </script>
+</body>
+</html>

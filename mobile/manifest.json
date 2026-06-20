@@ -1,0 +1,14 @@
+{
+  "name": "Vanta",
+  "short_name": "Vanta",
+  "description": "Write and run Vanta on your phone - on-device, offline.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e1020",
+  "theme_color": "#0e1020",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
