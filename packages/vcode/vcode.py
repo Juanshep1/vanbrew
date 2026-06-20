@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "2.4"
+VERSION = "2.5"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -746,7 +746,7 @@ def banner(cfg):
     print("  " + dot + "  " + bold(cfg["provider"]) + dim("   ·   ") + cfg["model"])
     print("  " + dim(os.getcwd()))
     print()
-    print(dim("  /help for commands   ·   ask me to build something   ·   Ctrl-D to exit"))
+    print(dim("  press / for commands   ·   ask me to build something   ·   Ctrl-D to exit"))
     print()
 
 HELP = """  Commands:
@@ -765,8 +765,9 @@ HELP = """  Commands:
     /exit, /quit     leave
 
   Shortcuts:
+    /                press / to pop the command menu (↑/↓ to pick, type to filter)
     Ctrl-C           interrupt the agent while it's working (back to the prompt)
-    Tab              complete a /command or an @file path
+    Tab              complete an @file path
     \"\"\"              start a multi-line message (end with \"\"\" on its own line)
     !<command>       run a shell command directly (e.g. !ls, !git status)
     @path/to/file    inline a file's contents into your message
@@ -797,13 +798,171 @@ def _rl_prompt():
         return "\001%s\002│ › \001\033[0m\002" % code
     return "│ › "
 
+SLASH_COMMANDS = [
+    ("/help",     "show the help"),
+    ("/clear",    "start a fresh conversation"),
+    ("/compact",  "summarize the conversation now"),
+    ("/cost",     "session time · turns · tokens"),
+    ("/resume",   "reload your previous session"),
+    ("/init",     "scan the project, write VANTA.md"),
+    ("/themes",   "pick a colour theme"),
+    ("/provider", "switch AI provider"),
+    ("/key",      "set the API key"),
+    ("/model",    "pick the model"),
+    ("/auto",     "toggle auto-approve for writes & shell"),
+    ("/cwd",      "change working directory"),
+    ("/exit",     "quit"),
+]
+
+_HIST = []   # the prompt history, newest last
+
+def _load_history():
+    try:
+        with open(os.path.expanduser("~/.vanta-code/history")) as f:
+            _HIST[:] = [ln.rstrip("\n") for ln in f if ln.strip()]
+    except Exception:
+        pass
+
+def _save_history_line(line):
+    if not line or (_HIST and _HIST[-1] == line):
+        return
+    _HIST.append(line)
+    p = os.path.expanduser("~/.vanta-code/history")
+    try:
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "a") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+def _editor_prompt():
+    # (display string, visible width). We position the cursor by column ourselves,
+    # so colour escapes are fine even on libedit - their bytes don't move the cursor.
+    if COLOR:
+        return "\033[%sm│ › \033[0m" % _code(THEME["accent"]), 4
+    return "│ › ", 4
+
+def _slash_menu():
+    rows = ["%-10s %s" % (c, dim(d)) for c, d in SLASH_COMMANDS]
+    sel = select_menu(orange("  / ") + dim("pick a command   ↑/↓ Enter · Esc to cancel"), rows)
+    return SLASH_COMMANDS[sel][0] if sel is not None else None
+
+def _complete_word(word):
+    import glob as _glob
+    at = word.startswith("@")
+    pref = word[1:] if at else word
+    if not pref:
+        return None
+    try:
+        ms = sorted(_glob.glob(os.path.expanduser(pref) + "*"))[:50]
+    except Exception:
+        return None
+    if not ms:
+        return None
+    ms = [m + ("/" if os.path.isdir(m) else "") for m in ms]
+    cp = os.path.commonprefix(ms)
+    return ("@" if at else "") + cp
+
+def read_line(prompt_disp, prompt_w):
+    """A small raw-mode line editor. '/' on an empty line pops the slash menu;
+    ↑/↓ recall history; ←/→ move; horizontal-scrolls so long lines never wrap.
+    Falls back to input() when there's no real terminal."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return input(prompt_disp)
+    try:
+        import termios
+    except Exception:
+        return input(prompt_disp)
+    fd = sys.stdin.fileno()
+    try:
+        old = termios.tcgetattr(fd)
+    except Exception:
+        return input(prompt_disp)
+    buf = []; cur = [0]; hidx = [len(_HIST)]; saved = [""]
+    def render():
+        avail = max(8, term_width() - prompt_w - 1)
+        start = cur[0] - avail if cur[0] > avail else 0
+        vis = "".join(buf)[start:start + avail]
+        sys.stdout.write("\r\033[K" + prompt_disp + vis + "\r")
+        col = prompt_w + (cur[0] - start)
+        if col > 0:
+            sys.stdout.write("\033[%dC" % col)
+        sys.stdout.flush()
+    def raw():
+        nw = termios.tcgetattr(fd)
+        nw[3] = nw[3] & ~(termios.ICANON | termios.ECHO | termios.ISIG)
+        termios.tcsetattr(fd, termios.TCSANOW, nw)
+    try:
+        raw(); render()
+        while True:
+            b = os.read(fd, 64)
+            if not b:
+                continue
+            if b == b"\x03":                                   # Ctrl-C
+                termios.tcsetattr(fd, termios.TCSADRAIN, old); raise KeyboardInterrupt
+            if b == b"\x04":                                   # Ctrl-D
+                if buf: continue
+                termios.tcsetattr(fd, termios.TCSADRAIN, old); raise EOFError
+            if b in (b"\r", b"\n"):
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                sys.stdout.write("\n"); sys.stdout.flush()
+                return "".join(buf)
+            if b in (b"\x7f", b"\x08"):                         # backspace
+                if cur[0] > 0: del buf[cur[0] - 1]; cur[0] -= 1; render()
+                continue
+            if b[:1] == b"\x1b":                               # escape / arrows
+                if b[1:2] == b"[":
+                    k = b[2:3]
+                    if k == b"C" and cur[0] < len(buf): cur[0] += 1; render()
+                    elif k == b"D" and cur[0] > 0: cur[0] -= 1; render()
+                    elif k == b"A" and hidx[0] > 0:
+                        if hidx[0] == len(_HIST): saved[0] = "".join(buf)
+                        hidx[0] -= 1; buf[:] = list(_HIST[hidx[0]]); cur[0] = len(buf); render()
+                    elif k == b"B" and hidx[0] < len(_HIST):
+                        hidx[0] += 1
+                        buf[:] = list(_HIST[hidx[0]]) if hidx[0] < len(_HIST) else list(saved[0])
+                        cur[0] = len(buf); render()
+                    elif k == b"H": cur[0] = 0; render()
+                    elif k == b"F": cur[0] = len(buf); render()
+                continue
+            if b == b"\t":                                     # @file / path completion
+                s = "".join(buf); j = cur[0]
+                while j > 0 and s[j - 1] not in (" ", "\t"):
+                    j -= 1
+                word = s[j:cur[0]]
+                comp = _complete_word(word) if word else None
+                if comp and comp != word:
+                    buf[j:cur[0]] = list(comp); cur[0] = j + len(comp); render()
+                continue
+            try:
+                txt = b.decode("utf-8")
+            except Exception:
+                continue
+            if not buf and txt == "/":                         # pop the slash menu
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                sys.stdout.write("\n"); sys.stdout.flush()
+                picked = _slash_menu()
+                if picked is not None:
+                    return picked
+                raw(); buf[:] = []; cur[0] = 0; render(); continue
+            ins = "".join(ch for ch in txt if ch >= " ")
+            if ins:
+                for ch in ins:
+                    buf.insert(cur[0], ch); cur[0] += 1
+                render()
+    finally:
+        try: termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        except Exception: pass
+
 def prompt_input():
     w = term_width()
     if USAGE["ctx"]:
         print(dim("  context ~%s tokens  ·  %s out" % (_human(USAGE["ctx"]), _human(USAGE["out"]))))
     print(orange("╭" + "─" * (w - 2) + "╮"))
-    line = input(_rl_prompt())            # readline gives up-arrow history + line editing
+    disp, pw = _editor_prompt()
+    line = read_line(disp, pw)             # custom editor: '/' menu, history, no-wrap
     print(orange("╰" + "─" * (w - 2) + "╯"))
+    _save_history_line(line.strip())
     return line
 
 def expand_mentions(text):
@@ -1180,6 +1339,7 @@ def main():
             readline.parse_and_bind("tab: complete")          # GNU readline
     except Exception:
         pass
+    _load_history()
     SESSION["start"] = time.time()
 
     banner(cfg)
