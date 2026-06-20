@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "2.9"
+VERSION = "3.0"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -237,19 +237,54 @@ def _parse_skill(path):
         txt = open(path, "r", errors="replace").read()
     except Exception:
         return None
-    name = ""; desc = ""; body = txt
+    fields = {}; body = txt
     m = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", txt, re.S)
     if m:
         body = m.group(2)
-        for ln in m.group(1).splitlines():
-            if ":" in ln:
-                k, v = ln.split(":", 1)
-                k = k.strip().lower(); v = v.strip().strip('"').strip("'")
-                if k == "name": name = v
-                elif k == "description": desc = v
-    if not name:
-        name = os.path.basename(os.path.dirname(path))
-    return {"name": name, "description": desc, "file": path, "dir": os.path.dirname(path), "body": body}
+        lines = m.group(1).splitlines(); i = 0
+        while i < len(lines):
+            kv = re.match(r"^([A-Za-z_][\w-]*):\s*(.*)$", lines[i])
+            if kv:
+                k = kv.group(1).strip().lower(); v = kv.group(2).strip()
+                if v in ("|", "|-", "|+", ">", ">-", ">+"):     # YAML block scalar
+                    parts = []; i += 1
+                    while i < len(lines) and (lines[i].startswith((" ", "\t")) or not lines[i].strip()):
+                        parts.append(lines[i].strip()); i += 1
+                    fields[k] = " ".join(p for p in parts if p); continue
+                fields[k] = v.strip('"').strip("'")
+            i += 1
+    name = fields.get("name") or os.path.basename(os.path.dirname(path))
+    return {"name": name, "description": fields.get("description", ""),
+            "file": path, "dir": os.path.dirname(path), "body": body}
+
+def install_skills(repo="https://github.com/anthropics/skills"):
+    """git-clone a skills repo and copy every folder with a SKILL.md into
+    ~/.vanta-code/skills/. Returns (count, dest_or_error)."""
+    import tempfile, shutil
+    if re.match(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", repo) and not os.path.exists(repo):
+        repo = "https://github.com/" + repo            # owner/name shorthand
+    dest = os.path.expanduser("~/.vanta-code/skills"); os.makedirs(dest, exist_ok=True)
+    tmp = tempfile.mkdtemp()
+    try:
+        r = subprocess.run(["git", "clone", "--depth", "1", "-q", repo, tmp],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
+        if r.returncode != 0:
+            shutil.rmtree(tmp, ignore_errors=True)
+            return 0, (r.stderr.decode("utf-8", "replace").strip() or "git clone failed")
+    except Exception as e:
+        shutil.rmtree(tmp, ignore_errors=True); return 0, str(e)
+    n = 0
+    for root, dirs, files in os.walk(tmp):
+        if "SKILL.md" in files:
+            nm = os.path.basename(root)
+            if nm not in ("", ".", "template"):
+                try:
+                    shutil.rmtree(os.path.join(dest, nm), ignore_errors=True)
+                    shutil.copytree(root, os.path.join(dest, nm)); n += 1
+                except Exception: pass
+            dirs[:] = []                                # don't recurse into a skill folder
+    shutil.rmtree(tmp, ignore_errors=True)
+    return n, dest
 
 def discover_skills():
     _SKILLS.clear()
@@ -268,7 +303,9 @@ def skills_prompt():
     lines = ["\n\n# Skills available (reusable expertise; Claude-Code compatible)",
              "When the user's task matches one of these Skills, call the `use_skill` tool with its name FIRST to load its full instructions, then follow them. A skill's folder may bundle scripts/files - read or run them as its instructions say."]
     for s in _SKILLS.values():
-        lines.append("- **%s**: %s" % (s["name"], (s["description"] or "(no description)")))
+        d = " ".join((s["description"] or "(no description)").split())   # collapse whitespace
+        if len(d) > 200: d = d[:197] + "..."                            # keep the prompt lean
+        lines.append("- **%s**: %s" % (s["name"], d))
     return "\n".join(lines)
 
 _EXAMPLE_SKILLS = {
@@ -931,6 +968,7 @@ HELP = """  Commands:
     /resume          reload your previous session (or start with: vcode --continue)
     /init            scan the project and write a VANTA.md (auto-loaded next time)
     /skills          list Skills the agent can use (SKILL.md folders; Claude Code skills work)
+    /skills install  grab a pile of skills from a repo (default: Anthropic's official skills)
     /themes          pick a color theme (ember, synthwave, matrix, ice, gold, mono)
     /provider [name] list providers, or switch: anthropic | openrouter | ollama
     /key             paste/replace the API key for the current provider
@@ -1675,14 +1713,23 @@ def main():
                 print(dim("  tokens   ~%s in context  ·  %s generated" %
                           (_human(USAGE["ctx"]), _human(USAGE["out"]))))
             elif name in ("skills", "skill"):
-                refresh_context()
-                if not _SKILLS:
-                    print(dim("  no skills yet. Drop a folder with a SKILL.md into"))
-                    print(dim("  ~/.vanta-code/skills/<name>/  or  ~/.claude/skills/<name>/  (Claude Code skills work as-is)."))
+                if rest.split(" ", 1)[0] in ("install", "add", "get"):
+                    parts = rest.split(None, 1)
+                    repo = parts[1].strip() if len(parts) > 1 else "https://github.com/anthropics/skills"
+                    print(dim("  fetching skills from " + repo + " ..."))
+                    n, info = install_skills(repo)
+                    if n: print(green("  ✓ installed %d skill(s)" % n)); refresh_context()
+                    else: print(red("  couldn't install: " + str(info)))
                 else:
-                    print(dim("  %d skill(s) the agent can use:" % len(_SKILLS)))
-                    for s in _SKILLS.values():
-                        print("  " + orange(s["name"]) + "  " + dim((s["description"] or "")[:72]))
+                    refresh_context()
+                    if not _SKILLS:
+                        print(dim("  no skills yet. Try  /skills install  (grabs Anthropic's skills),"))
+                        print(dim("  or drop a SKILL.md folder into ~/.vanta-code/skills/ or ~/.claude/skills/."))
+                    else:
+                        print(dim("  %d skill(s) the agent can use:" % len(_SKILLS)))
+                        for s in _SKILLS.values():
+                            print("  " + orange("%-20s" % s["name"]) + dim(" " + (s["description"] or "")[:64]))
+                        print(dim("  add more:  /skills install [owner/repo or url]"))
             else: print(dim("  unknown command. /help for the list."))
             continue
         try:
