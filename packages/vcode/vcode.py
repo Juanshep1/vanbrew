@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "2.5"
+VERSION = "2.6"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -249,10 +249,14 @@ def find_vanta():
         if p and os.path.exists(p): return p
     return None
 
-AUTO = {"on": False}  # session auto-approve toggle
+MODE = {"v": "default"}   # permission mode: default | auto | plan (shift+tab cycles)
+MODE_ORDER = ["default", "auto", "plan"]
+# tools that change the world / run code - blocked in plan mode
+PLAN_BLOCKED = {"write_file", "edit_file", "make_dir", "move_path", "delete_path",
+                "run_vanta", "run_app", "bash"}
 
 def _confirm(action):
-    if AUTO["on"]: return True
+    if MODE["v"] == "auto": return True
     ans = ""
     try:
         sys.stdout.write("\n  %s %s " % (orange("Proceed?"), dim("(y / N / a=always)")))
@@ -262,7 +266,7 @@ def _confirm(action):
         print(); return False
     except Exception:
         ans = ""
-    if ans == "a": AUTO["on"] = True; return True
+    if ans == "a": MODE["v"] = "auto"; return True
     return ans in ("y", "yes")
 
 def tool_read_file(a):
@@ -507,6 +511,12 @@ def tool_label(name, a):
 
 def run_tool(name, a):
     SESSION["tools"] += 1
+    if MODE["v"] == "plan" and name in PLAN_BLOCKED:
+        print(orange("⏺ ") + bold(tool_label(name, a)) + dim("  · plan mode, skipped"))
+        return ("[PLAN MODE is on - read-only. Do not write, edit, or run anything. "
+                "Keep exploring with read_file/search/glob/list_files only, then STOP and "
+                "present a short, concrete PLAN of the steps you would take. The user will "
+                "press shift+tab to leave plan mode and tell you to go.]")
     print(orange("⏺ ") + bold(tool_label(name, a)))
     try:
         result, summary = DISPATCH[name](a)
@@ -759,13 +769,20 @@ HELP = """  Commands:
     /provider [name] list providers, or switch: anthropic | openrouter | ollama
     /key             paste/replace the API key for the current provider
     /model [n|name]  list models and pick one (/model 2), or set any id
-    /auto            toggle auto-approve for writes & shell (currently: %s)
+    /auto            toggle auto-accept mode (runs everything without asking)
+    /plan            toggle plan mode (read-only; the agent proposes a plan first)
     /cost            show session time, turns, tool calls and token usage
     /cwd <path>      change working directory
     /exit, /quit     leave
 
+  Permission modes (current: %s)  -  press Shift+Tab to cycle:
+    default          writes auto-approved; shell & delete ask first
+    auto-accept      everything runs without asking
+    plan             read-only: I explore and propose a plan, then you run it
+
   Shortcuts:
     /                press / to pop the command menu (↑/↓ to pick, type to filter)
+    Shift+Tab        cycle permission mode (default -> auto -> plan)
     Ctrl-C           interrupt the agent while it's working (back to the prompt)
     Tab              complete an @file path
     \"\"\"              start a multi-line message (end with \"\"\" on its own line)
@@ -809,7 +826,8 @@ SLASH_COMMANDS = [
     ("/provider", "switch AI provider"),
     ("/key",      "set the API key"),
     ("/model",    "pick the model"),
-    ("/auto",     "toggle auto-approve for writes & shell"),
+    ("/auto",     "toggle auto-accept mode"),
+    ("/plan",     "toggle plan mode (read-only)"),
     ("/cwd",      "change working directory"),
     ("/exit",     "quit"),
 ]
@@ -838,9 +856,21 @@ def _save_history_line(line):
 def _editor_prompt():
     # (display string, visible width). We position the cursor by column ourselves,
     # so colour escapes are fine even on libedit - their bytes don't move the cursor.
+    m = MODE["v"]
+    if m == "auto":
+        return ("\033[%sm│ auto › \033[0m" % GREEN if COLOR else "auto › "), (9 if COLOR else 7)
+    if m == "plan":
+        return ("\033[%sm│ plan › \033[0m" % BLUE if COLOR else "plan › "), (9 if COLOR else 7)
     if COLOR:
         return "\033[%sm│ › \033[0m" % _code(THEME["accent"]), 4
     return "│ › ", 4
+
+def _mode_banner():
+    m = MODE["v"]
+    if m == "auto":
+        print("  " + green("⏵⏵ auto-accept on") + dim("  · runs everything without asking  · shift+tab cycles"))
+    elif m == "plan":
+        print("  " + blue("◷ plan mode on") + dim("  · read-only, I'll propose a plan first  · shift+tab cycles"))
 
 def _slash_menu():
     rows = ["%-10s %s" % (c, dim(d)) for c, d in SLASH_COMMANDS]
@@ -863,23 +893,24 @@ def _complete_word(word):
     cp = os.path.commonprefix(ms)
     return ("@" if at else "") + cp
 
-def read_line(prompt_disp, prompt_w):
+def read_line():
     """A small raw-mode line editor. '/' on an empty line pops the slash menu;
-    ↑/↓ recall history; ←/→ move; horizontal-scrolls so long lines never wrap.
-    Falls back to input() when there's no real terminal."""
+    Shift+Tab cycles the permission mode; ↑/↓ recall history; ←/→ move; it
+    horizontal-scrolls so long lines never wrap. Falls back to input() (no tty)."""
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        return input(prompt_disp)
+        return input(_editor_prompt()[0])
     try:
         import termios
     except Exception:
-        return input(prompt_disp)
+        return input(_editor_prompt()[0])
     fd = sys.stdin.fileno()
     try:
         old = termios.tcgetattr(fd)
     except Exception:
-        return input(prompt_disp)
+        return input(_editor_prompt()[0])
     buf = []; cur = [0]; hidx = [len(_HIST)]; saved = [""]
     def render():
+        prompt_disp, prompt_w = _editor_prompt()    # recompute so mode changes show live
         avail = max(8, term_width() - prompt_w - 1)
         start = cur[0] - avail if cur[0] > avail else 0
         vis = "".join(buf)[start:start + avail]
@@ -913,7 +944,10 @@ def read_line(prompt_disp, prompt_w):
             if b[:1] == b"\x1b":                               # escape / arrows
                 if b[1:2] == b"[":
                     k = b[2:3]
-                    if k == b"C" and cur[0] < len(buf): cur[0] += 1; render()
+                    if k == b"Z":                              # Shift+Tab: cycle mode
+                        MODE["v"] = MODE_ORDER[(MODE_ORDER.index(MODE["v"]) + 1) % len(MODE_ORDER)]
+                        render()
+                    elif k == b"C" and cur[0] < len(buf): cur[0] += 1; render()
                     elif k == b"D" and cur[0] > 0: cur[0] -= 1; render()
                     elif k == b"A" and hidx[0] > 0:
                         if hidx[0] == len(_HIST): saved[0] = "".join(buf)
@@ -958,9 +992,9 @@ def prompt_input():
     w = term_width()
     if USAGE["ctx"]:
         print(dim("  context ~%s tokens  ·  %s out" % (_human(USAGE["ctx"]), _human(USAGE["out"]))))
+    _mode_banner()
     print(orange("╭" + "─" * (w - 2) + "╮"))
-    disp, pw = _editor_prompt()
-    line = read_line(disp, pw)             # custom editor: '/' menu, history, no-wrap
+    line = read_line()                     # '/' menu, shift+tab modes, history, no-wrap
     print(orange("╰" + "─" * (w - 2) + "╯"))
     _save_history_line(line.strip())
     return line
@@ -1385,7 +1419,7 @@ def main():
             cmd = line[1:].split(" ", 1)
             name = cmd[0].lower(); rest = cmd[1].strip() if len(cmd) > 1 else ""
             if name in ("exit", "quit"): print(dim("  bye.")); return
-            elif name == "help": print(HELP % ("on" if AUTO["on"] else "off"))
+            elif name == "help": print(HELP % MODE["v"])
             elif name == "clear": history = []; print(dim("  context cleared."))
             elif name == "compact":
                 if history: history[:] = compact_history(cfg, history)
@@ -1405,7 +1439,10 @@ def main():
                     print(green("  ✓ key saved for " + cfg["provider"]) if _saved_key(cfg["provider"]) == k
                           else red("  ⚠ could not save the key (check ~/.vanta-code permissions)"))
                 else: print(dim("  (cancelled)"))
-            elif name == "auto": AUTO["on"] = not AUTO["on"]; print(dim("  auto-approve %s." % ("on" if AUTO["on"] else "off")))
+            elif name == "auto":
+                MODE["v"] = "default" if MODE["v"] == "auto" else "auto"; print(dim("  mode: " + MODE["v"]))
+            elif name == "plan":
+                MODE["v"] = "default" if MODE["v"] == "plan" else "plan"; print(dim("  mode: " + MODE["v"]))
             elif name in ("themes", "theme"): do_theme_menu(cfg)
             elif name == "model":
                 if not rest or rest.lower() == "refresh":
