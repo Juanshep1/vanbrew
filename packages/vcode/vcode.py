@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "2.6"
+VERSION = "2.7"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -73,7 +73,7 @@ def grad_line(line):
     out.append("\033[0m"); return "".join(out)
 
 def term_width():
-    try: return min(shutil.get_terminal_size().columns, 90)
+    try: return max(24, min(shutil.get_terminal_size().columns, 90))   # floor for narrow phones
     except Exception: return 80
 
 # --------------------------------------------------------------- spinner -----
@@ -769,6 +769,7 @@ HELP = """  Commands:
     /provider [name] list providers, or switch: anthropic | openrouter | ollama
     /key             paste/replace the API key for the current provider
     /model [n|name]  list models and pick one (/model 2), or set any id
+    /mode            cycle permission mode (handy on phones without Shift+Tab)
     /auto            toggle auto-accept mode (runs everything without asking)
     /plan            toggle plan mode (read-only; the agent proposes a plan first)
     /cost            show session time, turns, tool calls and token usage
@@ -826,6 +827,7 @@ SLASH_COMMANDS = [
     ("/provider", "switch AI provider"),
     ("/key",      "set the API key"),
     ("/model",    "pick the model"),
+    ("/mode",     "cycle permission mode (default/auto/plan)"),
     ("/auto",     "toggle auto-accept mode"),
     ("/plan",     "toggle plan mode (read-only)"),
     ("/cwd",      "change working directory"),
@@ -866,11 +868,12 @@ def _editor_prompt():
     return "│ › ", 4
 
 def _mode_banner():
+    # glyphs kept ASCII-safe (»/•) so they render on Android terminal fonts too
     m = MODE["v"]
     if m == "auto":
-        print("  " + green("⏵⏵ auto-accept on") + dim("  · runs everything without asking  · shift+tab cycles"))
+        print("  " + green("» auto-accept on") + dim("  · runs everything without asking  · shift+tab or /mode"))
     elif m == "plan":
-        print("  " + blue("◷ plan mode on") + dim("  · read-only, I'll propose a plan first  · shift+tab cycles"))
+        print("  " + blue("• plan mode on") + dim("  · read-only, I'll propose a plan first  · shift+tab or /mode"))
 
 def _slash_menu():
     rows = ["%-10s %s" % (c, dim(d)) for c, d in SLASH_COMMANDS]
@@ -923,12 +926,22 @@ def read_line():
         nw = termios.tcgetattr(fd)
         nw[3] = nw[3] & ~(termios.ICANON | termios.ECHO | termios.ISIG)
         termios.tcsetattr(fd, termios.TCSANOW, nw)
+    import select as _select, errno as _errno
     try:
         raw(); render()
         while True:
-            b = os.read(fd, 64)
+            try:
+                b = os.read(fd, 64)
+            except OSError as e:                               # e.g. EINTR when the
+                if e.errno == _errno.EINTR: continue           # app is backgrounded
+                raise
             if not b:
                 continue
+            if b == b"\x1b":                                   # lone Esc: a phone/laggy
+                r, _, _ = _select.select([fd], [], [], 0.05)   # terminal may split the
+                if r:                                          # arrow escape across reads
+                    try: b += os.read(fd, 8)
+                    except OSError: pass
             if b == b"\x03":                                   # Ctrl-C
                 termios.tcsetattr(fd, termios.TCSADRAIN, old); raise KeyboardInterrupt
             if b == b"\x04":                                   # Ctrl-D
@@ -1443,6 +1456,8 @@ def main():
                 MODE["v"] = "default" if MODE["v"] == "auto" else "auto"; print(dim("  mode: " + MODE["v"]))
             elif name == "plan":
                 MODE["v"] = "default" if MODE["v"] == "plan" else "plan"; print(dim("  mode: " + MODE["v"]))
+            elif name == "mode":
+                MODE["v"] = MODE_ORDER[(MODE_ORDER.index(MODE["v"]) + 1) % len(MODE_ORDER)]; print(dim("  mode: " + MODE["v"]))
             elif name in ("themes", "theme"): do_theme_menu(cfg)
             elif name == "model":
                 if not rest or rest.lower() == "refresh":
