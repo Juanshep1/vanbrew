@@ -153,8 +153,20 @@ to parse_add(toks, i)
     let left be parse_mul(toks, i)
     let node be left["node"]
     let j be left["i"]
-    while j is under length(toks) and toks[j]["t"] is "sym" and (toks[j]["v"] is "+" or toks[j]["v"] is "-")
-        let op be toks[j]["v"]
+    while j is under length(toks)
+        let op be ""
+        if toks[j]["t"] is "sym" and (toks[j]["v"] is "+" or toks[j]["v"] is "-")
+            change op to toks[j]["v"]
+        end
+        if toks[j]["t"] is "word" and toks[j]["v"] is "plus"
+            change op to "+"
+        end
+        if toks[j]["t"] is "word" and toks[j]["v"] is "minus"
+            change op to "-"
+        end
+        if op is ""
+            give back {"node": node, "i": j}
+        end
         let right be parse_mul(toks, j + 1)
         change node to {"k": "bin", "op": op, "a": node, "b": right["node"]}
         change j to right["i"]
@@ -166,9 +178,23 @@ to parse_mul(toks, i)
     let left be parse_unary(toks, i)
     let node be left["node"]
     let j be left["i"]
-    while j is under length(toks) and toks[j]["t"] is "sym" and (toks[j]["v"] is "*" or toks[j]["v"] is "/" or toks[j]["v"] is "%")
-        let op be toks[j]["v"]
-        let right be parse_unary(toks, j + 1)
+    while j is under length(toks)
+        let op be ""
+        let adv be 1
+        if toks[j]["t"] is "sym" and (toks[j]["v"] is "*" or toks[j]["v"] is "/" or toks[j]["v"] is "%")
+            change op to toks[j]["v"]
+        end
+        if toks[j]["t"] is "word" and toks[j]["v"] is "times"
+            change op to "*"
+        end
+        if toks[j]["t"] is "word" and toks[j]["v"] is "divided" and (j + 1) is under length(toks) and toks[j + 1]["t"] is "word" and toks[j + 1]["v"] is "by"
+            change op to "/"
+            change adv to 2
+        end
+        if op is ""
+            give back {"node": node, "i": j}
+        end
+        let right be parse_unary(toks, j + adv)
         change node to {"k": "bin", "op": op, "a": node, "b": right["node"]}
         change j to right["i"]
     end
@@ -342,6 +368,16 @@ to parse_stmt(prog, i)
         let ax be parse_expr(toks, 1)
         let tx be parse_expr(toks, ax["i"] + 1)
         give back {"stmt": {"k": "add", "val": ax["node"], "target": tx["node"]}, "i": i + 1}
+    end
+    if head is "increase"
+        let bx be parse_expr(toks, 3)
+        let nv be {"k": "bin", "op": "+", "a": {"k": "var", "name": toks[1]["v"]}, "b": bx["node"]}
+        give back {"stmt": {"k": "set", "name": toks[1]["v"], "e": nv}, "i": i + 1}
+    end
+    if head is "decrease"
+        let bx be parse_expr(toks, 3)
+        let nv be {"k": "bin", "op": "-", "a": {"k": "var", "name": toks[1]["v"]}, "b": bx["node"]}
+        give back {"stmt": {"k": "set", "name": toks[1]["v"], "e": nv}, "i": i + 1}
     end
     if head is "give"
         let ex be parse_expr(toks, 2)
@@ -712,7 +748,7 @@ to call_builtin(name, args)
         give back {"hit": yes, "v": bxor(args[0], args[1])}
     end
     if name is "bnot"
-        give back {"hit": yes, "v": bnot(args[0])}
+        give back {"hit": yes, "v": bnot(args[0], args[1])}
     end
     if name is "shift_left"
         give back {"hit": yes, "v": shift_left(args[0], args[1])}
@@ -740,6 +776,21 @@ to call_builtin(name, args)
     end
     if name is "remove_at"
         give back {"hit": yes, "v": remove_at(args[0], args[1])}
+    end
+    if name is "sqrt"
+        give back {"hit": yes, "v": sqrt(args[0])}
+    end
+    if name is "power"
+        give back {"hit": yes, "v": power(args[0], args[1])}
+    end
+    if name is "url_encode"
+        give back {"hit": yes, "v": url_encode(args[0])}
+    end
+    if name is "url_decode"
+        give back {"hit": yes, "v": url_decode(args[0])}
+    end
+    if name is "html_escape"
+        give back {"hit": yes, "v": html_escape(args[0])}
     end
     if name is "map"
         let out be []

@@ -158,7 +158,7 @@ static Value B_is_bool(Value v){ return BOOLV(v.t==TB); }
 static Value B_band(Value a, Value b){ return NUM((double)((long)a.n & (long)b.n)); }
 static Value B_bor(Value a, Value b){ return NUM((double)((long)a.n | (long)b.n)); }
 static Value B_bxor(Value a, Value b){ return NUM((double)((long)a.n ^ (long)b.n)); }
-static Value B_bnot(Value a){ return NUM((double)(~(long)a.n)); }
+static Value B_bnot(Value a, Value w){ long bits=(long)w.n; long mask=(bits>=63)?-1L:((1L<<bits)-1); return NUM((double)((~(long)a.n) & mask)); }
 static Value B_shl(Value a, Value b){ return NUM((double)((long)a.n << (long)b.n)); }
 static Value B_shr(Value a, Value b){ return NUM((double)((long)a.n >> (long)b.n)); }
 static Value B_minl(Value v){ if(v.t!=TL||v.l->len==0) return NIL(); Value m=v.l->items[0]; for(long i=1;i<v.l->len;i++) if(v.l->items[i].n<m.n) m=v.l->items[i]; return m; }
@@ -168,6 +168,8 @@ static Value B_productl(Value v){ double s=1; if(v.t==TL) for(long i=0;i<v.l->le
 static Value B_push(Value lst, Value x){ if(lst.t==TL) listpush(lst,x); return lst; }
 static Value B_pop(Value lst){ if(lst.t==TL && lst.l->len>0) return lst.l->items[--lst.l->len]; return NIL(); }
 static Value B_remove_at(Value lst, Value iv){ if(lst.t==TL){ long i=(long)iv.n; if(i>=0&&i<lst.l->len){ for(long j=i;j<lst.l->len-1;j++) lst.l->items[j]=lst.l->items[j+1]; lst.l->len--; } } return lst; }
+static Value B_sqrt(Value v){ double x=v.n; if(x<=0) return NUM(0); double g=x>1?x:1.0; for(int i=0;i<60;i++) g=(g+x/g)/2; return NUM(g); }
+static Value B_power(Value a, Value b){ double base=a.n; long e=(long)b.n; double r=1; long n=e<0?-e:e; for(long i=0;i<n;i++) r*=base; return NUM(e<0?1.0/r:r); }
 static Value vc_serve(long port, Value(*handler)(Value)){ int srv=socket(AF_INET,SOCK_STREAM,0); int opt=1; setsockopt(srv,SOL_SOCKET,SO_REUSEADDR,&opt,sizeof opt); struct sockaddr_in a; memset(&a,0,sizeof a); a.sin_family=AF_INET; a.sin_addr.s_addr=INADDR_ANY; a.sin_port=htons(port); if(bind(srv,(struct sockaddr*)&a,sizeof a)<0){perror("bind");return NIL();} listen(srv,64); printf("Vanta native server on http://localhost:%ld\n",port); fflush(stdout); g_in_req=1;
   for(;;){ ebb(); int c=accept(srv,0,0); if(c<0)continue; long blen; char* raw=recv_request(c,&blen); if(raw&&blen>0){ Value req=parse_request(raw); Value resp=handler(req); long status=200; char* body=""; char* ctype="text/html; charset=utf-8"; Value xh=NIL();
         if(resp.t==TS){ body=resp.s; } else if(resp.t==TM){ Value st=INDEX(resp,STR("status")); if(st.t==TN)status=(long)st.n; Value bd=INDEX(resp,STR("body")); if(bd.t==TM||bd.t==TL){ body=tostr(B_to_json(bd)); ctype="application/json"; } else if(bd.t!=TX) body=tostr(bd); Value ty=INDEX(resp,STR("type")); if(ty.t==TS)ctype=ty.s; xh=INDEX(resp,STR("headers")); }
@@ -417,8 +419,20 @@ Value v_parse_add(Value v_toks, Value v_i) {
     Value v_left = v_parse_mul(v_toks, v_i);
     Value v_node = INDEX(v_left, STR("node"));
     Value v_j = INDEX(v_left, STR("i"));
-    while (truthy(ANDV(ANDV(LT(v_j, B_length(v_toks)), EQ(INDEX(INDEX(v_toks, v_j), STR("t")), STR("sym"))), ORV(EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("+")), EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("-")))))) {
-        Value v_op = INDEX(INDEX(v_toks, v_j), STR("v"));
+    while (truthy(LT(v_j, B_length(v_toks)))) {
+        Value v_op = STR("");
+        if (truthy(ANDV(EQ(INDEX(INDEX(v_toks, v_j), STR("t")), STR("sym")), ORV(EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("+")), EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("-")))))) {
+            v_op = INDEX(INDEX(v_toks, v_j), STR("v"));
+        }
+        if (truthy(ANDV(EQ(INDEX(INDEX(v_toks, v_j), STR("t")), STR("word")), EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("plus"))))) {
+            v_op = STR("+");
+        }
+        if (truthy(ANDV(EQ(INDEX(INDEX(v_toks, v_j), STR("t")), STR("word")), EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("minus"))))) {
+            v_op = STR("-");
+        }
+        if (truthy(EQ(v_op, STR("")))) {
+            return MKMAP(2, STR("node"), v_node, STR("i"), v_j);
+        }
         Value v_right = v_parse_mul(v_toks, ADD(v_j, NUM(1)));
         v_node = MKMAP(4, STR("k"), STR("bin"), STR("op"), v_op, STR("a"), v_node, STR("b"), INDEX(v_right, STR("node")));
         v_j = INDEX(v_right, STR("i"));
@@ -431,9 +445,23 @@ Value v_parse_mul(Value v_toks, Value v_i) {
     Value v_left = v_parse_unary(v_toks, v_i);
     Value v_node = INDEX(v_left, STR("node"));
     Value v_j = INDEX(v_left, STR("i"));
-    while (truthy(ANDV(ANDV(LT(v_j, B_length(v_toks)), EQ(INDEX(INDEX(v_toks, v_j), STR("t")), STR("sym"))), ORV(ORV(EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("*")), EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("/"))), EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("%")))))) {
-        Value v_op = INDEX(INDEX(v_toks, v_j), STR("v"));
-        Value v_right = v_parse_unary(v_toks, ADD(v_j, NUM(1)));
+    while (truthy(LT(v_j, B_length(v_toks)))) {
+        Value v_op = STR("");
+        Value v_adv = NUM(1);
+        if (truthy(ANDV(EQ(INDEX(INDEX(v_toks, v_j), STR("t")), STR("sym")), ORV(ORV(EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("*")), EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("/"))), EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("%")))))) {
+            v_op = INDEX(INDEX(v_toks, v_j), STR("v"));
+        }
+        if (truthy(ANDV(EQ(INDEX(INDEX(v_toks, v_j), STR("t")), STR("word")), EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("times"))))) {
+            v_op = STR("*");
+        }
+        if (truthy(ANDV(ANDV(ANDV(ANDV(EQ(INDEX(INDEX(v_toks, v_j), STR("t")), STR("word")), EQ(INDEX(INDEX(v_toks, v_j), STR("v")), STR("divided"))), LT(ADD(v_j, NUM(1)), B_length(v_toks))), EQ(INDEX(INDEX(v_toks, ADD(v_j, NUM(1))), STR("t")), STR("word"))), EQ(INDEX(INDEX(v_toks, ADD(v_j, NUM(1))), STR("v")), STR("by"))))) {
+            v_op = STR("/");
+            v_adv = NUM(2);
+        }
+        if (truthy(EQ(v_op, STR("")))) {
+            return MKMAP(2, STR("node"), v_node, STR("i"), v_j);
+        }
+        Value v_right = v_parse_unary(v_toks, ADD(v_j, v_adv));
         v_node = MKMAP(4, STR("k"), STR("bin"), STR("op"), v_op, STR("a"), v_node, STR("b"), INDEX(v_right, STR("node")));
         v_j = INDEX(v_right, STR("i"));
     }
@@ -613,6 +641,16 @@ Value v_parse_stmt(Value v_prog, Value v_i) {
         Value v_ax = v_parse_expr(v_toks, NUM(1));
         Value v_tx = v_parse_expr(v_toks, ADD(INDEX(v_ax, STR("i")), NUM(1)));
         return MKMAP(2, STR("stmt"), MKMAP(3, STR("k"), STR("add"), STR("val"), INDEX(v_ax, STR("node")), STR("target"), INDEX(v_tx, STR("node"))), STR("i"), ADD(v_i, NUM(1)));
+    }
+    if (truthy(EQ(v_head, STR("increase")))) {
+        Value v_bx = v_parse_expr(v_toks, NUM(3));
+        Value v_nv = MKMAP(4, STR("k"), STR("bin"), STR("op"), STR("+"), STR("a"), MKMAP(2, STR("k"), STR("var"), STR("name"), INDEX(INDEX(v_toks, NUM(1)), STR("v"))), STR("b"), INDEX(v_bx, STR("node")));
+        return MKMAP(2, STR("stmt"), MKMAP(3, STR("k"), STR("set"), STR("name"), INDEX(INDEX(v_toks, NUM(1)), STR("v")), STR("e"), v_nv), STR("i"), ADD(v_i, NUM(1)));
+    }
+    if (truthy(EQ(v_head, STR("decrease")))) {
+        Value v_bx = v_parse_expr(v_toks, NUM(3));
+        Value v_nv = MKMAP(4, STR("k"), STR("bin"), STR("op"), STR("-"), STR("a"), MKMAP(2, STR("k"), STR("var"), STR("name"), INDEX(INDEX(v_toks, NUM(1)), STR("v"))), STR("b"), INDEX(v_bx, STR("node")));
+        return MKMAP(2, STR("stmt"), MKMAP(3, STR("k"), STR("set"), STR("name"), INDEX(INDEX(v_toks, NUM(1)), STR("v")), STR("e"), v_nv), STR("i"), ADD(v_i, NUM(1)));
     }
     if (truthy(EQ(v_head, STR("give")))) {
         Value v_ex = v_parse_expr(v_toks, NUM(2));
@@ -992,7 +1030,7 @@ Value v_call_builtin(Value v_name, Value v_args) {
         return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_bxor(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
     }
     if (truthy(EQ(v_name, STR("bnot")))) {
-        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_bnot(INDEX(v_args, NUM(0))));
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_bnot(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
     }
     if (truthy(EQ(v_name, STR("shift_left")))) {
         return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_shl(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
@@ -1020,6 +1058,21 @@ Value v_call_builtin(Value v_name, Value v_args) {
     }
     if (truthy(EQ(v_name, STR("remove_at")))) {
         return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_remove_at(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
+    }
+    if (truthy(EQ(v_name, STR("sqrt")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_sqrt(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("power")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_power(INDEX(v_args, NUM(0)), INDEX(v_args, NUM(1))));
+    }
+    if (truthy(EQ(v_name, STR("url_encode")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_url_encode(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("url_decode")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_url_decode(INDEX(v_args, NUM(0))));
+    }
+    if (truthy(EQ(v_name, STR("html_escape")))) {
+        return MKMAP(2, STR("hit"), BOOLV(1), STR("v"), B_html_escape(INDEX(v_args, NUM(0))));
     }
     if (truthy(EQ(v_name, STR("map")))) {
         Value v_out = MKLIST(0);
