@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "2.8"
+VERSION = "2.9"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -218,6 +218,142 @@ def load_project_context():
                 break
     return ("\n\n" + "\n\n".join(chunks)) if chunks else ""
 
+# ------------------------------------------------------------------ skills ---
+# A Skill is a folder with a SKILL.md: YAML frontmatter (name, description) + a
+# markdown body of instructions, optionally bundling scripts/files. This is the
+# SAME format as Claude Code's Agent Skills, so vcode picks up skills you already
+# have in ~/.claude/skills/ as well as ~/.vanta-code/skills/.
+_SKILLS = {}   # name -> {name, description, file, dir, body}
+
+def _skill_dirs():
+    out = []
+    for base in (os.getcwd(), os.path.expanduser("~")):
+        for sub in (".vanta-code/skills", ".claude/skills"):
+            out.append(os.path.join(base, sub))
+    return out
+
+def _parse_skill(path):
+    try:
+        txt = open(path, "r", errors="replace").read()
+    except Exception:
+        return None
+    name = ""; desc = ""; body = txt
+    m = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", txt, re.S)
+    if m:
+        body = m.group(2)
+        for ln in m.group(1).splitlines():
+            if ":" in ln:
+                k, v = ln.split(":", 1)
+                k = k.strip().lower(); v = v.strip().strip('"').strip("'")
+                if k == "name": name = v
+                elif k == "description": desc = v
+    if not name:
+        name = os.path.basename(os.path.dirname(path))
+    return {"name": name, "description": desc, "file": path, "dir": os.path.dirname(path), "body": body}
+
+def discover_skills():
+    _SKILLS.clear()
+    for d in _skill_dirs():
+        if not os.path.isdir(d): continue
+        for entry in sorted(os.listdir(d)):
+            sf = os.path.join(d, entry, "SKILL.md")
+            if os.path.isfile(sf):
+                sk = _parse_skill(sf)
+                if sk and sk["name"] not in _SKILLS:   # first wins: project > user
+                    _SKILLS[sk["name"]] = sk
+    return _SKILLS
+
+def skills_prompt():
+    if not _SKILLS: return ""
+    lines = ["\n\n# Skills available (reusable expertise; Claude-Code compatible)",
+             "When the user's task matches one of these Skills, call the `use_skill` tool with its name FIRST to load its full instructions, then follow them. A skill's folder may bundle scripts/files - read or run them as its instructions say."]
+    for s in _SKILLS.values():
+        lines.append("- **%s**: %s" % (s["name"], (s["description"] or "(no description)")))
+    return "\n".join(lines)
+
+_EXAMPLE_SKILLS = {
+"vanta-web-app": """---
+name: vanta-web-app
+description: Build a web or GUI app in the Vanta language - the {{ }} brace rule, the build-HTML-string-then-open pattern, and serve() for real backends. Use when asked to make a Vanta web app, dashboard, tool, or visual program.
+---
+
+# Building a web/GUI app in Vanta
+A Vanta visual app builds an HTML page as a STRING, writes it to a file, opens it.
+
+## The rule that trips everyone up
+In a Vanta string a single `{` means interpolation, so DOUBLE every literal brace
+in CSS/JS: write `{{` and `}}`. Use single quotes for HTML attributes.
+
+```
+to page()
+    let css be "body{{font:16px system-ui;background:#0e1020;color:#eee;padding:40px}}"
+    give back "<!doctype html><html><head><style>" + css + "</style></head><body><h1>Hi</h1></body></html>"
+end
+write_file("/tmp/app.html", page())
+open_url("/tmp/app.html")
+```
+
+## When you need a backend
+`serve(port, handle)` on an UNCOMMON high port (8765, never 8080/8090/8100). The
+handler takes `{method,path,query,headers,body}` and gives back a string OR a map
+`{status, body, type, headers}` (map/list body auto-JSONs).
+
+Make a dedicated folder, use the file pattern for visual apps, serve() only for
+live data, then run_app to show it. Join strings with `+`; `text(x)` to stringify.
+""",
+"vanta-game": """---
+name: vanta-game
+description: Build a native 2D game in Vanta that compiles to a real binary via the SDL engine (vc -k + sdlrt.c). Use when asked to make a Vanta game - graphics, input, sound, sprites, a game loop.
+---
+
+# Building a native game in Vanta
+Games compile to a NATIVE binary via `vc -k` + the SDL runtime (github.com/Juanshep1/vanta-game).
+Build with `./build.sh <name>` then run `./<name>` (needs SDL2 + sdlrt.c).
+
+## The loop
+```
+title("My Game")
+window(560, 480)
+background(rgb(14, 16, 30))
+let x be 100
+while quit() is 0
+    poll()
+    if held("right") is 1
+        change x to x + 6
+    end
+    clear()
+    rfill(x, 200, 40, 40, rgb(94, 240, 200), 8)
+    present()
+    delay(16)
+end
+```
+
+## API
+- `rgb(r,g,b)`; `window(w,h)`; `background(c)`; `clear()`/`present()`; `delay(16)`.
+- Draw: `fill` `rfill(x,y,w,h,c,radius)` `circle` `line` `rect` `text_at`/`text_big`/`text_huge` `sprite(x,y,rows,scale,palette)`.
+- Input: `poll()`; `held("left/right/up/down/space/a..z")`->1/0; `pressed(name)` (edge); `key()`; `mouse_x/y/down()`.
+- `sound(freq,ms)`; `random(n)`/`random_range(a,b)`; `quit()`->1 on close; `ticks()`.
+Keep state in lists/maps (the runtime has a GC). Do NOT use serve()/run_app for games.
+""",
+}
+
+def _seed_skills():
+    base = os.path.expanduser("~/.vanta-code/skills")
+    try:
+        if os.path.isdir(base) and any(os.path.isdir(os.path.join(base, d)) for d in os.listdir(base)):
+            return                               # user already has skills - don't touch
+        for nm, body in _EXAMPLE_SKILLS.items():
+            d = os.path.join(base, nm); os.makedirs(d, exist_ok=True)
+            f = os.path.join(d, "SKILL.md")
+            if not os.path.exists(f):
+                open(f, "w").write(body)
+    except Exception:
+        pass
+
+def refresh_context():
+    discover_skills()
+    _CTX["text"] = load_project_context() + skills_prompt()
+
 # ------------------------------------------------------------------- tools ---
 TOOLS = [
     {"name": "read_file", "description": "Read a UTF-8 text file and return its contents.",
@@ -244,7 +380,18 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
     {"name": "bash", "description": "Run a shell command and return stdout/stderr.",
      "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
+    {"name": "use_skill", "description": "Load a Skill's full instructions by name (see the Skills list in your context). Call this FIRST when a task matches a skill, then follow what it returns. The skill's folder may contain scripts/files you can read with read_file or run with bash.",
+     "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
 ]
+
+def tool_use_skill(a):
+    nm = (a.get("name") or "").strip()
+    s = _SKILLS.get(nm) or next((v for k, v in _SKILLS.items() if k.lower() == nm.lower()), None)
+    if not s:
+        return ("No skill named %r. Available skills: %s" % (nm, ", ".join(_SKILLS) or "(none)")), "no such skill"
+    body = "# Skill: %s\nfolder: %s\n(read/run files in this folder as the instructions say)\n\n%s" % (
+        s["name"], s["dir"], s["body"])
+    return body, "skill loaded"
 
 def find_vanta():
     for p in [shutil.which("vanta"), os.path.expanduser("~/.vanbrew/bin/vanta")]:
@@ -493,7 +640,8 @@ DISPATCH = {"read_file": tool_read_file, "write_file": tool_write_file,
             "edit_file": tool_edit_file, "search": tool_search, "glob": tool_glob,
             "list_files": tool_list_files, "make_dir": tool_make_dir,
             "move_path": tool_move_path, "delete_path": tool_delete_path,
-            "run_vanta": tool_run_vanta, "run_app": tool_run_app, "bash": tool_bash}
+            "run_vanta": tool_run_vanta, "run_app": tool_run_app, "bash": tool_bash,
+            "use_skill": tool_use_skill}
 
 def tool_label(name, a):
     if name == "read_file":  return "Read(%s)" % a.get("path", "")
@@ -782,6 +930,7 @@ HELP = """  Commands:
     /compact         summarize the conversation now (also happens automatically)
     /resume          reload your previous session (or start with: vcode --continue)
     /init            scan the project and write a VANTA.md (auto-loaded next time)
+    /skills          list Skills the agent can use (SKILL.md folders; Claude Code skills work)
     /themes          pick a color theme (ember, synthwave, matrix, ice, gold, mono)
     /provider [name] list providers, or switch: anthropic | openrouter | ollama
     /key             paste/replace the API key for the current provider
@@ -840,6 +989,7 @@ SLASH_COMMANDS = [
     ("/cost",     "session time · turns · tokens"),
     ("/resume",   "reload your previous session"),
     ("/init",     "scan the project, write VANTA.md"),
+    ("/skills",   "list the Skills the agent can use"),
     ("/themes",   "pick a colour theme"),
     ("/provider", "switch AI provider"),
     ("/key",      "set the API key"),
@@ -964,7 +1114,13 @@ def read_line():
             if b == b"\x04":                                   # Ctrl-D
                 if buf: continue
                 termios.tcsetattr(fd, termios.TCSADRAIN, old); raise EOFError
-            if b in (b"\r", b"\n"):
+            if b.endswith(b"\r") or b.endswith(b"\n"):          # submit (Enter), batch-safe:
+                head = b.rstrip(b"\r\n")                         # a read may carry text + Enter
+                if head:
+                    try: txt = head.decode("utf-8")
+                    except Exception: txt = ""
+                    for ch in txt:
+                        if ch >= " ": buf.insert(cur[0], ch); cur[0] += 1
                 termios.tcsetattr(fd, termios.TCSADRAIN, old)
                 sys.stdout.write("\n"); sys.stdout.flush()
                 return "".join(buf)
@@ -1214,7 +1370,7 @@ def select_menu(title, rows, idx=0):
         nw[3] = nw[3] & ~(termios.ICANON | termios.ECHO | termios.ISIG)
         termios.tcsetattr(fd, termios.TCSANOW, nw)
         while True:
-            b = os.read(fd, 32)                    # may batch several typed chars
+            b = os.read(fd, 32)                    # may batch several typed chars + a control key
             if not b: continue
             if b[:1] == b"\x1b":                    # escape sequence or bare Esc
                 if len(b) >= 3 and b[1:2] == b"[":
@@ -1222,21 +1378,22 @@ def select_menu(title, rows, idx=0):
                     if k == b"A" and fil[0]: cur[0] = (cur[0] - 1) % len(fil[0])
                     elif k == b"B" and fil[0]: cur[0] = (cur[0] + 1) % len(fil[0])
                     else: continue
-                else:
-                    return None                     # bare Esc cancels
-            elif b in (b"\r", b"\n"):
-                return fil[0][cur[0]] if fil[0] else None
-            elif b == b"\x03":
-                return None
-            else:                                   # printable / backspace -> edit the filter
-                changed = False
-                for byte in bytearray(b):
-                    if byte in (8, 127):
-                        if query[0]: query[0] = query[0][:-1]; changed = True
-                    elif 32 <= byte <= 126:
-                        query[0] += chr(byte); changed = True
-                if not changed: continue
-                refilter()
+                    sys.stdout.write("\033[%dA" % (vis + 1)); draw(); continue
+                return None                         # bare Esc cancels
+            # a single read can carry filter chars AND Enter/Ctrl-C together (terminals
+            # batch input) - scan byte-by-byte so a trailing Enter still commits.
+            changed = False
+            for byte in bytearray(b):
+                if byte in (10, 13):                # Enter -> commit the (refiltered) choice
+                    if changed: refilter()
+                    return fil[0][cur[0]] if fil[0] else None
+                if byte == 3:                       # Ctrl-C
+                    return None
+                if byte in (8, 127):
+                    if query[0]: query[0] = query[0][:-1]; changed = True
+                elif 32 <= byte <= 126:
+                    query[0] += chr(byte); changed = True
+            if changed: refilter()
             sys.stdout.write("\033[%dA" % (vis + 1)); draw()
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
@@ -1364,7 +1521,8 @@ def main():
     if not cfg:
         no_key_screen(); return
     set_theme(file_config().get("theme", "ember"))   # restore the saved theme
-    _CTX["text"] = load_project_context()             # auto-load VANTA.md/AGENTS.md/CLAUDE.md
+    _seed_skills()                                    # ship example Vanta skills on first run
+    refresh_context()                                 # auto-load VANTA.md/AGENTS.md/CLAUDE.md + skills
     try:
         import readline, atexit
         _hist = os.path.expanduser("~/.vanta-code/history")
@@ -1456,7 +1614,7 @@ def main():
                 else: print(dim("  nothing to compact yet."))
             elif name == "init":
                 agent_turn(cfg, history, expand_mentions("Look around this project (use glob/list_files/read_file) and write a short VANTA.md in the current folder: what it is, how to run it, key files, and any Vanta conventions used. Then confirm you created it."))
-                _CTX["text"] = load_project_context()
+                refresh_context()
             elif name == "resume":
                 s = load_session()
                 if s: history[:] = s; print(dim("  resumed %d messages from your last session." % len(s)))
@@ -1516,6 +1674,15 @@ def main():
                           (el // 60, el % 60, SESSION["turns"], SESSION["tools"])))
                 print(dim("  tokens   ~%s in context  ·  %s generated" %
                           (_human(USAGE["ctx"]), _human(USAGE["out"]))))
+            elif name in ("skills", "skill"):
+                refresh_context()
+                if not _SKILLS:
+                    print(dim("  no skills yet. Drop a folder with a SKILL.md into"))
+                    print(dim("  ~/.vanta-code/skills/<name>/  or  ~/.claude/skills/<name>/  (Claude Code skills work as-is)."))
+                else:
+                    print(dim("  %d skill(s) the agent can use:" % len(_SKILLS)))
+                    for s in _SKILLS.values():
+                        print("  " + orange(s["name"]) + "  " + dim((s["description"] or "")[:72]))
             else: print(dim("  unknown command. /help for the list."))
             continue
         try:
