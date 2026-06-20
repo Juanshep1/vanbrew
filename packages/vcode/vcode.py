@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "2.7"
+VERSION = "2.8"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -128,6 +128,7 @@ So for "make this run without Python" / "compile to a native binary" / "ship a s
 - For a new project, MAKE A DEDICATED FOLDER for it (make_dir, e.g. ~/vanta/<name>/) and put the .va plus any assets inside, unless the user says where. Then launch it so the user sees it: a visual/web app -> run_app (pops a movable window); a plain script -> run_vanta (console output). Read any error, fix the .va, and re-run until it works.
 - Only use run_app/run_vanta on an EXISTING file when the user explicitly says "run/open <that file>". Otherwise you are creating, not fetching.
 - To CHANGE an existing file, use edit_file (replace exact 'old' text with 'new') — it is surgical and shows a clean diff. Use write_file only for brand-new files or full rewrites. Use search (grep contents) and glob (find files by name) to locate code before editing.
+- To COPY or duplicate a file (e.g. clone an app into a new folder), DO NOT re-type its contents into write_file — that wastes tokens and can hit the output limit on big files. Instead use bash to copy it (`cp source dest`, after make_dir for the folder), then edit_file on the copy for the small changes (renames, paths, branding). Reserve full write_file for genuinely new files.
 - Keep answers tight: a sentence on what you built, then the result. You may use light markdown (**bold**, `code`, # headings, ```fenced``` blocks); it renders in the terminal.
 
 # Building a visual app in Vanta (write this from scratch)
@@ -172,6 +173,7 @@ Game API: `screen_w()` `screen_h()`; `rgb(r,g,b)`; `background(c)`; `clear()`; `
 _CTX = {"text": ""}   # project context (VANTA.md / AGENTS.md / CLAUDE.md), loaded at startup
 USAGE = {"ctx": 0, "out": 0}   # last input (context) tokens + cumulative output tokens
 SESSION = {"start": None, "tools": 0, "turns": 0}   # /cost stats for this run
+MAX_TOKENS = 16384             # output cap per turn (8192 truncated big file writes)
 
 def _human(n):
     return ("%.1fk" % (n / 1000.0)) if n >= 1000 else str(int(n))
@@ -511,6 +513,11 @@ def tool_label(name, a):
 
 def run_tool(name, a):
     SESSION["tools"] += 1
+    if isinstance(a, dict) and "_truncated" in a:
+        print(orange("⏺ ") + bold(name) + dim("  · arguments were cut off (output limit)"))
+        return ("[Your last tool call was CUT OFF at the output limit, so its arguments "
+                "are incomplete - it was NOT run. Don't re-type a whole large file: instead "
+                "use bash `cp` to copy the original, then edit_file for the small changes.]")
     if MODE["v"] == "plan" and name in PLAN_BLOCKED:
         print(orange("⏺ ") + bold(tool_label(name, a)) + dim("  · plan mode, skipped"))
         return ("[PLAN MODE is on - read-only. Do not write, edit, or run anything. "
@@ -566,7 +573,7 @@ def to_openai_msgs(history):
 def call_llm(cfg, history):
     """Return a normalized assistant message: {content:[blocks], stop:'tool'|'end'}."""
     if cfg["kind"] == "anthropic":
-        payload = {"model": cfg["model"], "max_tokens": 8192, "system": SYSTEM + _CTX["text"],
+        payload = {"model": cfg["model"], "max_tokens": MAX_TOKENS, "system": SYSTEM + _CTX["text"],
                    "messages": history, "tools": TOOLS}
         headers = {"x-api-key": cfg["key"], "anthropic-version": "2023-06-01",
                    "content-type": "application/json"}
@@ -575,27 +582,31 @@ def call_llm(cfg, history):
         USAGE["ctx"] = u.get("input_tokens", USAGE["ctx"]); USAGE["out"] += u.get("output_tokens", 0)
         blocks = j.get("content", [])
         stop = "tool" if j.get("stop_reason") == "tool_use" else "end"
-        return {"content": blocks, "stop": stop}
+        return {"content": blocks, "stop": stop, "trunc": j.get("stop_reason") == "max_tokens"}
     else:  # openai-compatible (openrouter)
         oai_tools = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
                       "parameters": t["input_schema"]}} for t in TOOLS]
         msgs = [{"role": "system", "content": SYSTEM + _CTX["text"]}] + to_openai_msgs(history)
-        payload = {"model": cfg["model"], "max_tokens": 8192, "messages": msgs,
+        payload = {"model": cfg["model"], "max_tokens": MAX_TOKENS, "messages": msgs,
                    "tools": oai_tools, "tool_choice": "auto"}
         headers = {"Authorization": "Bearer " + cfg["key"], "content-type": "application/json",
                    "HTTP-Referer": "https://github.com/Juanshep1/vanbrew", "X-Title": "Vanta Code"}
         j = http_json(cfg["base"] + "/chat/completions", payload, headers)
         u = j.get("usage", {}) or {}
         USAGE["ctx"] = u.get("prompt_tokens", USAGE["ctx"]); USAGE["out"] += u.get("completion_tokens", 0)
-        m = j["choices"][0]["message"]
+        ch = j["choices"][0]; m = ch["message"]
+        trunc = ch.get("finish_reason") == "length"
         blocks = []
         if m.get("content"): blocks.append({"type": "text", "text": m["content"]})
         for tc in (m.get("tool_calls") or []):
-            try: inp = json.loads(tc["function"]["arguments"] or "{}")
-            except Exception: inp = {}
+            raw = tc["function"]["arguments"] or "{}"
+            try:
+                inp = json.loads(raw)
+            except Exception:
+                inp = {"_truncated": raw}    # cut-off JSON args -> flag it, don't run silently empty
             blocks.append({"type": "tool_use", "id": tc["id"], "name": tc["function"]["name"], "input": inp})
         stop = "tool" if (m.get("tool_calls")) else "end"
-        return {"content": blocks, "stop": stop}
+        return {"content": blocks, "stop": stop, "trunc": trunc}
 
 # ----------------------------------------------------------------- agent -----
 def wrap(text, width):
@@ -726,6 +737,12 @@ def agent_turn(cfg, history, user_text):
                     results.append({"type": "tool_result", "tool_use_id": b["id"], "content": out})
             tool_uses = any(b["type"] == "tool_use" for b in resp["content"])
             if tool_uses: history.append({"role": "user", "content": results})
+            if resp.get("trunc"):                  # cut off at the output limit
+                print(dim("  ⚠ hit the output limit — recovering automatically"))
+                if not tool_uses:
+                    history.append({"role": "user", "content":
+                        "Your reply was cut off at the length limit. Continue from exactly where you stopped."})
+                continue                           # loop again so it finishes the work itself
             if resp["stop"] != "tool" or not tool_uses:
                 return
         print(dim("  (stopped after too many steps)"))
