@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "3.2"
+VERSION = "3.3"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -1428,6 +1428,9 @@ def select_menu(title, rows, idx=0):
         sys.stdout.write("\r\033[K" + dim("  %d/%d  ↑/↓ Enter · Esc%s" % ((cur[0] + 1) if m else 0, m, flt)) + "\n")
         sys.stdout.flush()
     draw()
+    def _close(v):                                  # erase the whole menu on the way out
+        sys.stdout.write("\033[%dA\r\033[J" % (vis + 2)); sys.stdout.flush()
+        return v
     try:
         nw = termios.tcgetattr(fd)            # raw input: no canonical, no echo, no signals
         nw[3] = nw[3] & ~(termios.ICANON | termios.ECHO | termios.ISIG)
@@ -1442,22 +1445,101 @@ def select_menu(title, rows, idx=0):
                     sys.stdout.write("\033[%dA" % (vis + 1)); draw(); continue
                 if len(b) >= 3 and b[1:2] == b"[":
                     continue                        # other CSI (←/→/Home) - ignore
-                return None                         # bare Esc cancels
+                return _close(None)                 # bare Esc cancels
             # a single read can carry filter chars AND Enter/Ctrl-C together (terminals
             # batch input) - scan byte-by-byte so a trailing Enter still commits.
             changed = False
             for byte in bytearray(b):
                 if byte in (10, 13):                # Enter -> commit the (refiltered) choice
                     if changed: refilter()
-                    return fil[0][cur[0]] if fil[0] else None
+                    return _close(fil[0][cur[0]] if fil[0] else None)
                 if byte == 3:                       # Ctrl-C
-                    return None
+                    return _close(None)
                 if byte in (8, 127):
                     if query[0]: query[0] = query[0][:-1]; changed = True
                 elif 32 <= byte <= 126:
                     query[0] += chr(byte); changed = True
             if changed: refilter()
             sys.stdout.write("\033[%dA" % (vis + 1)); draw()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+def skills_browser():
+    """A polished, scrollable browser for the installed Skills - colour hierarchy
+    (names pop, descriptions recede), width-fit with ellipsis, full-block redraw +
+    cleanup. ↑/↓ scroll, type to filter, Enter returns the chosen skill name, Esc."""
+    names = list(_SKILLS)
+    if not names: return None
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        for n in names: print("  " + orange(n) + dim("  " + (_SKILLS[n]["description"] or "")[:60]))
+        return None
+    try: import termios
+    except Exception: return None
+    fd = sys.stdin.fileno()
+    try: old = termios.tcgetattr(fd)
+    except Exception: return None
+    W = term_width()
+    try: H = shutil.get_terminal_size().lines
+    except Exception: H = 24
+    vis = max(5, min(len(names), H - 5))
+    namew = min(22, max(len(n) for n in names) + 1)
+    cur = [0]; top = [0]; query = [""]; fil = [list(range(len(names)))]; drawn = [0]
+    def refilter():
+        q = query[0].lower()
+        fil[0] = [i for i, n in enumerate(names)
+                  if not q or q in n.lower() or q in (_SKILLS[n]["description"] or "").lower()]
+        cur[0] = 0; top[0] = 0
+    def draw():
+        m = len(fil[0])
+        if cur[0] >= m: cur[0] = max(0, m - 1)
+        if cur[0] < top[0]: top[0] = cur[0]
+        elif cur[0] >= top[0] + vis: top[0] = cur[0] - vis + 1
+        descw = max(12, W - namew - 5)
+        out = [bold(orange("  Skills")) + dim("  %d" % len(names)) +
+               dim("      ↑↓ scroll · type to filter · enter · esc")]
+        for r in range(vis):
+            mi = top[0] + r
+            if mi < m:
+                n = names[fil[0][mi]]; d = " ".join((_SKILLS[n]["description"] or "").split())
+                if len(d) > descw: d = d[:descw - 1] + "…"
+                nc = n[:namew].ljust(namew)
+                out.append(orange("▸ ") + bold(nc) + " " + d if mi == cur[0]
+                           else "  " + blue(nc) + " " + dim(d))
+            else:
+                out.append("")
+        flt = ("  filter: " + bold(query[0])) if query[0] else ""
+        out.append(dim("  %d/%d%s" % ((cur[0] + 1) if m else 0, m, flt)))
+        if drawn[0]: sys.stdout.write("\033[%dA" % drawn[0])
+        for ln in out: sys.stdout.write("\r\033[K" + ln + "\n")
+        drawn[0] = len(out); sys.stdout.flush()
+    def _close(v):
+        if drawn[0]: sys.stdout.write("\033[%dA\r\033[J" % drawn[0]); sys.stdout.flush()
+        return v
+    draw()
+    try:
+        nw = termios.tcgetattr(fd); nw[3] = nw[3] & ~(termios.ICANON | termios.ECHO | termios.ISIG)
+        termios.tcsetattr(fd, termios.TCSANOW, nw)
+        while True:
+            b = os.read(fd, 256)
+            if not b: continue
+            if b[:1] == b"\x1b":
+                up = b.count(b"\x1b[A"); down = b.count(b"\x1b[B")
+                if (up or down) and fil[0]:
+                    cur[0] = (cur[0] + down - up) % len(fil[0]); draw(); continue
+                if len(b) >= 3 and b[1:2] == b"[": continue
+                return _close(None)
+            changed = False
+            for byte in bytearray(b):
+                if byte in (10, 13):
+                    if changed: refilter()
+                    return _close(names[fil[0][cur[0]]] if fil[0] else None)
+                if byte == 3: return _close(None)
+                if byte in (8, 127):
+                    if query[0]: query[0] = query[0][:-1]; changed = True
+                elif 32 <= byte <= 126:
+                    query[0] += chr(byte); changed = True
+            if changed: refilter()
+            draw()
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
@@ -1751,17 +1833,13 @@ def main():
                         print(dim("  no skills yet. Try  /skills install  (grabs Anthropic's skills),"))
                         print(dim("  or drop a SKILL.md folder into ~/.vanta-code/skills/ or ~/.claude/skills/."))
                     else:
-                        names = list(_SKILLS)
-                        rows = ["%-24s %s" % (nm, " ".join((_SKILLS[nm]["description"] or "").split())[:54])
-                                for nm in names]
-                        title = (orange("  %d skills" % len(names)) +
-                                 dim("   ↑/↓ scroll · type to filter · Enter = details · Esc"))
-                        sel = select_menu(title, rows)          # scrollable, filterable
-                        if sel is not None:
-                            s = _SKILLS[names[sel]]
-                            print("  " + orange(s["name"]))
-                            print(dim("  " + " ".join((s["description"] or "(no description)").split())[:400]))
-                            print(dim('  the agent loads this with use_skill("%s")' % s["name"]))
+                        picked = skills_browser()               # scrollable, styled
+                        if picked and picked in _SKILLS:
+                            s = _SKILLS[picked]
+                            print("  " + bold(orange(s["name"])))
+                            d = " ".join((s["description"] or "(no description)").split())
+                            print(dim("  " + (d[:400] + ("…" if len(d) > 400 else ""))))
+                            print(dim('  the agent loads this with  use_skill("%s")' % s["name"]))
                         print(dim("  add more:  /skills install [owner/repo or url]"))
             else: print(dim("  unknown command. /help for the list."))
             continue
