@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "3.5"
+VERSION = "3.6"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -1033,7 +1033,7 @@ def banner(cfg):
     print("  " + dot + "  " + bold(cfg["provider"]) + dim("   ·   ") + cfg["model"])
     print("  " + dim(os.getcwd()))
     print()
-    print(dim("  press / for commands   ·   ask me to build something   ·   Ctrl-D to exit"))
+    print(dim("  type / and Tab to autocomplete a command   ·   ask me to build something   ·   Ctrl-D to exit"))
     print()
 
 HELP = """  Commands:
@@ -1066,7 +1066,8 @@ HELP = """  Commands:
     /                press / to pop the command menu (↑/↓ to pick, type to filter)
     Shift+Tab        cycle permission mode (default -> auto -> plan)
     Ctrl-C           interrupt the agent while it's working (back to the prompt)
-    Tab              complete an @file path or #skill name
+    /                type / and a command autosuggests (blue) - Tab fills it in
+    Tab              accept the inline suggestion (/command, #skill, or @file)
     \"\"\"              start a multi-line message (end with \"\"\" on its own line)
     !<command>       run a shell command directly (e.g. !ls, !git status)
     @path/to/file    inline a file's contents into your message
@@ -1189,8 +1190,36 @@ def _complete_word(word):
     cp = os.path.commonprefix(ms)
     return ("@" if at else "") + cp
 
+def _suggest_token(s, cur):
+    """Inline autosuggestion for the word ending at the cursor. Returns
+    (word_start, word, full_completion) for a /command, a /<pinned-skill>, or a
+    #skill-name - the first match in natural order - or None."""
+    j = cur
+    while j > 0 and s[j - 1] not in (" ", "\t"): j -= 1
+    word = s[j:cur]
+    if not word: return None
+    if word[0] == "/":
+        cands = [c for c, _ in SLASH_COMMANDS] + ["/" + n for n in my_skill_names()]
+    elif word[0] == "#":
+        cands = ["#" + n for n in _SKILLS]
+    else:
+        return None
+    wl = word.lower()
+    for c in cands:
+        if c.lower().startswith(wl) and len(c) > len(word):
+            return (j, word, c)
+    return None
+
+def _decorate_line(s):
+    # colour a leading /command (or /<skill>) token blue, so a slash command stands out
+    if not s or s[0] != "/": return s
+    i = 0
+    while i < len(s) and s[i] not in (" ", "\t"): i += 1
+    return blue(s[:i]) + s[i:]
+
 def read_line():
-    """A small raw-mode line editor. '/' on an empty line pops the slash menu;
+    """A small raw-mode line editor. Type '/' and a command autosuggests inline
+    (blue, faint ghost rest) - Tab fills it in; '/' alone + Tab opens the menu.
     Shift+Tab cycles the permission mode; ↑/↓ recall history; ←/→ move; it
     horizontal-scrolls so long lines never wrap. Falls back to input() (no tty)."""
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
@@ -1208,9 +1237,19 @@ def read_line():
     def render():
         prompt_disp, prompt_w = _editor_prompt()    # recompute so mode changes show live
         avail = max(8, term_width() - prompt_w - 1)
+        full = "".join(buf)
         start = cur[0] - avail if cur[0] > avail else 0
-        vis = "".join(buf)[start:start + avail]
-        sys.stdout.write("\r\033[K" + prompt_disp + vis + "\r")
+        vis = full[start:start + avail]
+        disp = vis; ghost = ""
+        if COLOR and start == 0:                     # only when the line isn't scrolled
+            disp = _decorate_line(vis)               # leading /command shown in blue
+            if cur[0] == len(buf):                    # ghost-suggest the rest, faint
+                sg = _suggest_token(full, cur[0])
+                if sg:
+                    suf = sg[2][len(sg[1]):]
+                    if suf and len(vis) + len(suf) <= avail:
+                        ghost = dim(suf)
+        sys.stdout.write("\r\033[K" + prompt_disp + disp + ghost + "\r")
         col = prompt_w + (cur[0] - start)
         if col > 0:
             sys.stdout.write("\033[%dC" % col)
@@ -1271,12 +1310,23 @@ def read_line():
                     elif k == b"H": cur[0] = 0; render()
                     elif k == b"F": cur[0] = len(buf); render()
                 continue
-            if b == b"\t":                                     # @file / path completion
+            if b == b"\t":                                     # Tab: accept the suggestion
                 s = "".join(buf); j = cur[0]
                 while j > 0 and s[j - 1] not in (" ", "\t"):
                     j -= 1
                 word = s[j:cur[0]]
-                comp = _complete_word(word) if word else None
+                if word == "/":                                # lone '/' + Tab -> browse menu
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                    sys.stdout.write("\n"); sys.stdout.flush()
+                    picked = _slash_menu()
+                    if picked is not None: return picked
+                    raw(); render(); continue
+                if word and word[0] in "/#":                   # fill in the /command or #skill
+                    sg = _suggest_token(s, cur[0])
+                    if sg:
+                        buf[j:cur[0]] = list(sg[2]); cur[0] = j + len(sg[2]); render()
+                    continue
+                comp = _complete_word(word) if word else None  # @file / path completion
                 if comp and comp != word:
                     buf[j:cur[0]] = list(comp); cur[0] = j + len(comp); render()
                 continue
@@ -1284,13 +1334,6 @@ def read_line():
                 txt = b.decode("utf-8")
             except Exception:
                 continue
-            if not buf and txt == "/":                         # pop the slash menu
-                termios.tcsetattr(fd, termios.TCSADRAIN, old)
-                sys.stdout.write("\n"); sys.stdout.flush()
-                picked = _slash_menu()
-                if picked is not None:
-                    return picked
-                raw(); buf[:] = []; cur[0] = 0; render(); continue
             ins = "".join(ch for ch in txt if ch >= " ")
             if ins:
                 for ch in ins:
