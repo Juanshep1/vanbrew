@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "3.1"
+VERSION = "3.2"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -1433,15 +1433,15 @@ def select_menu(title, rows, idx=0):
         nw[3] = nw[3] & ~(termios.ICANON | termios.ECHO | termios.ISIG)
         termios.tcsetattr(fd, termios.TCSANOW, nw)
         while True:
-            b = os.read(fd, 32)                    # may batch several typed chars + a control key
+            b = os.read(fd, 256)                   # big enough that batched arrows fit in one read
             if not b: continue
-            if b[:1] == b"\x1b":                    # escape sequence or bare Esc
-                if len(b) >= 3 and b[1:2] == b"[":
-                    k = b[2:3]
-                    if k == b"A" and fil[0]: cur[0] = (cur[0] - 1) % len(fil[0])
-                    elif k == b"B" and fil[0]: cur[0] = (cur[0] + 1) % len(fil[0])
-                    else: continue
+            if b[:1] == b"\x1b":                    # escape / arrows (a read may batch many)
+                up = b.count(b"\x1b[A"); down = b.count(b"\x1b[B")
+                if (up or down) and fil[0]:
+                    cur[0] = (cur[0] + down - up) % len(fil[0])
                     sys.stdout.write("\033[%dA" % (vis + 1)); draw(); continue
+                if len(b) >= 3 and b[1:2] == b"[":
+                    continue                        # other CSI (←/→/Home) - ignore
                 return None                         # bare Esc cancels
             # a single read can carry filter chars AND Enter/Ctrl-C together (terminals
             # batch input) - scan byte-by-byte so a trailing Enter still commits.
@@ -1751,12 +1751,17 @@ def main():
                         print(dim("  no skills yet. Try  /skills install  (grabs Anthropic's skills),"))
                         print(dim("  or drop a SKILL.md folder into ~/.vanta-code/skills/ or ~/.claude/skills/."))
                     else:
-                        print(dim("  %d skill(s) the agent can use:" % len(_SKILLS)))
-                        for i, s in enumerate(_SKILLS.values()):
-                            if i >= 40:
-                                print(dim("  …and %d more — the agent finds them with find_skill" % (len(_SKILLS) - 40)))
-                                break
-                            print("  " + orange("%-22s" % s["name"]) + dim(" " + (s["description"] or "")[:50]))
+                        names = list(_SKILLS)
+                        rows = ["%-24s %s" % (nm, " ".join((_SKILLS[nm]["description"] or "").split())[:54])
+                                for nm in names]
+                        title = (orange("  %d skills" % len(names)) +
+                                 dim("   ↑/↓ scroll · type to filter · Enter = details · Esc"))
+                        sel = select_menu(title, rows)          # scrollable, filterable
+                        if sel is not None:
+                            s = _SKILLS[names[sel]]
+                            print("  " + orange(s["name"]))
+                            print(dim("  " + " ".join((s["description"] or "(no description)").split())[:400]))
+                            print(dim('  the agent loads this with use_skill("%s")' % s["name"]))
                         print(dim("  add more:  /skills install [owner/repo or url]"))
             else: print(dim("  unknown command. /help for the list."))
             continue
