@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "3.6"
+VERSION = "3.7"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -1192,14 +1192,16 @@ def _complete_word(word):
 
 def _suggest_token(s, cur):
     """Inline autosuggestion for the word ending at the cursor. Returns
-    (word_start, word, full_completion) for a /command, a /<pinned-skill>, or a
+    (word_start, word, full_completion) for a /command, a /<skill>, or a
     #skill-name - the first match in natural order - or None."""
     j = cur
     while j > 0 and s[j - 1] not in (" ", "\t"): j -= 1
     word = s[j:cur]
     if not word: return None
     if word[0] == "/":
-        cands = [c for c, _ in SLASH_COMMANDS] + ["/" + n for n in my_skill_names()]
+        pinned = my_skill_names()                       # pinned skills rank first,
+        rest = [n for n in _SKILLS if n not in pinned]  # then every other installed skill
+        cands = [c for c, _ in SLASH_COMMANDS] + ["/" + n for n in pinned + rest]
     elif word[0] == "#":
         cands = ["#" + n for n in _SKILLS]
     else:
@@ -1984,8 +1986,8 @@ def main():
                     else:
                         print(dim("  your skills:  " + "  ".join("/" + n for n in mine)))
                         print(dim("  remove one with  /skills remove <name>"))
-            elif name in {n.lower() for n in my_skill_names()}:    # typed /<a-pinned-skill>
-                real = next(n for n in my_skill_names() if n.lower() == name)
+            elif name in {n.lower() for n in _SKILLS}:             # typed /<any-skill> -> load it
+                real = next(n for n in _SKILLS if n.lower() == name)
                 load_skill_into(history, real)
             else: print(dim("  unknown command. /help for the list."))
             continue
