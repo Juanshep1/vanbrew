@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "3.4"
+VERSION = "3.5"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -1066,10 +1066,11 @@ HELP = """  Commands:
     /                press / to pop the command menu (↑/↓ to pick, type to filter)
     Shift+Tab        cycle permission mode (default -> auto -> plan)
     Ctrl-C           interrupt the agent while it's working (back to the prompt)
-    Tab              complete an @file path
+    Tab              complete an @file path or #skill name
     \"\"\"              start a multi-line message (end with \"\"\" on its own line)
     !<command>       run a shell command directly (e.g. !ls, !git status)
     @path/to/file    inline a file's contents into your message
+    #skill-name      reference a Skill right in your prompt (e.g. "make a #pdf invoice")
     ↑ / ↓            recall previous prompts (history is saved)
 
   Just type what you want, e.g.:
@@ -1169,6 +1170,11 @@ def _slash_menu():
 
 def _complete_word(word):
     import glob as _glob
+    if word.startswith("#"):                            # #skill-name -> complete skill names
+        pref = word[1:].lower()
+        ms = [n for n in _SKILLS if n.lower().startswith(pref)]
+        if not ms: return None
+        return "#" + (os.path.commonprefix(ms) if len(ms) > 1 else ms[0])
     at = word.startswith("@")
     pref = word[1:] if at else word
     if not pref:
@@ -1314,7 +1320,18 @@ def expand_mentions(text):
             except Exception: return m.group(0)
             return "%s\n\n--- %s ---\n%s\n--- end %s ---" % (path, path, body, path)
         return m.group(0)
-    return re.sub(r"@([^\s]+)", rep, text)
+    text = re.sub(r"@([^\s]+)", rep, text)
+    # #skill-name -> inlines a Skill's full instructions for THIS message, so you can
+    # reference a skill mid-prompt instead of loading it first. Only expands when the
+    # name actually matches an installed skill, so ordinary '#' (issue #5, C#) is left alone.
+    def rep_skill(m):
+        nm = m.group(1)
+        s = _SKILLS.get(nm) or next((v for k, v in _SKILLS.items() if k.lower() == nm.lower()), None)
+        if not s: return m.group(0)
+        body, _ = tool_use_skill({"name": s["name"]})
+        return '(use the "%s" skill — its instructions follow)\n\n--- Skill: %s ---\n%s\n--- end skill ---' % (
+            s["name"], s["name"], body)
+    return re.sub(r"#([A-Za-z0-9][A-Za-z0-9_-]*)", rep_skill, text)
 
 # ----------------------------------------------------------------- config ----
 PROVIDERS = {
@@ -1910,7 +1927,7 @@ def main():
                                 print("  " + orange("★ ") + bold(s["name"]) + dim("  is already in My Skills"))
                             d = " ".join((s["description"] or "(no description)").split())
                             print(dim("  " + (d[:300] + ("…" if len(d) > 300 else ""))))
-                            print(dim("  use it anytime:  /myskills   ·   or just type  /%s" % s["name"]))
+                            print(dim("  use it:  /myskills · type /%s · or inline in a prompt with #%s" % (s["name"], s["name"])))
                         print(dim("  add more:  /skills install [owner/repo or url]"))
             elif name in ("myskills", "myskill"):
                 refresh_context()
