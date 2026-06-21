@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "3.3"
+VERSION = "3.4"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -299,6 +299,43 @@ def discover_skills():
                     _SKILLS[sk["name"]] = sk
     return _SKILLS
 
+# ---- My Skills: a small curated set the user pins from the big /skills list,
+# persisted so they're one keystroke away (in /myskills and the / menu). --------
+_MYSKILLS = []   # pinned skill names, newest-last
+def _myskills_path(): return os.path.expanduser("~/.vanta-code/myskills.json")
+
+def load_myskills():
+    try:
+        with open(_myskills_path()) as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            _MYSKILLS[:] = [n for n in data if isinstance(n, str)]
+    except Exception:
+        pass
+    return _MYSKILLS
+
+def save_myskills():
+    try:
+        os.makedirs(os.path.dirname(_myskills_path()), exist_ok=True)
+        with open(_myskills_path(), "w") as f:
+            json.dump(_MYSKILLS, f, indent=2)
+        return True
+    except Exception:
+        return False
+
+def add_myskill(name):
+    if name in _MYSKILLS: return False
+    _MYSKILLS.append(name); save_myskills(); return True
+
+def remove_myskill(name):
+    if name in _MYSKILLS:
+        _MYSKILLS.remove(name); save_myskills(); return True
+    return False
+
+def my_skill_names():
+    # only those still installed, in the order they were pinned
+    return [n for n in _MYSKILLS if n in _SKILLS]
+
 def skills_prompt():
     # Scales to any number of skills: with a handful, list name+description; with
     # many (a big installed pile), list NAMES only + a find_skill hint, so the
@@ -454,6 +491,19 @@ def tool_use_skill(a):
     body = "# Skill: %s\nfolder: %s\n(read/run files in this folder as the instructions say)\n\n%s" % (
         s["name"], s["dir"], s["body"])
     return body, "skill loaded"
+
+def load_skill_into(history, name):
+    """Pull a skill's full instructions into the conversation so the agent applies
+    it to whatever the user asks next. Used by /myskills and /<skillname>."""
+    s = _SKILLS.get(name) or next((v for k, v in _SKILLS.items() if k.lower() == name.lower()), None)
+    if not s:
+        print(dim("  that skill isn't installed anymore.")); return
+    body, _ = tool_use_skill({"name": s["name"]})
+    history.append({"role": "user",
+        "content": "Load the \"%s\" skill and apply it to what I ask next.\n\n%s" % (s["name"], body)})
+    try: save_session(history)
+    except Exception: pass
+    print("  " + orange("✦ ") + bold(s["name"]) + dim("  loaded — now tell me what to make."))
 
 def find_vanta():
     for p in [shutil.which("vanta"), os.path.expanduser("~/.vanbrew/bin/vanta")]:
@@ -992,8 +1042,10 @@ HELP = """  Commands:
     /compact         summarize the conversation now (also happens automatically)
     /resume          reload your previous session (or start with: vcode --continue)
     /init            scan the project and write a VANTA.md (auto-loaded next time)
-    /skills          list Skills the agent can use (SKILL.md folders; Claude Code skills work)
+    /skills          browse Skills; highlight one + Enter pins it to My Skills (★)
     /skills install  grab a pile of skills from a repo (default: Anthropic's official skills)
+    /myskills        your pinned skills; Enter loads one to use (also: /<skill-name>)
+    /skills remove <name>  unpin a skill from My Skills
     /themes          pick a color theme (ember, synthwave, matrix, ice, gold, mono)
     /provider [name] list providers, or switch: anthropic | openrouter | ollama
     /key             paste/replace the API key for the current provider
@@ -1052,7 +1104,8 @@ SLASH_COMMANDS = [
     ("/cost",     "session time · turns · tokens"),
     ("/resume",   "reload your previous session"),
     ("/init",     "scan the project, write VANTA.md"),
-    ("/skills",   "list the Skills the agent can use"),
+    ("/skills",   "browse skills · Enter pins one to My Skills"),
+    ("/myskills", "your pinned skills · Enter loads one to use"),
     ("/themes",   "pick a colour theme"),
     ("/provider", "switch AI provider"),
     ("/key",      "set the API key"),
@@ -1106,9 +1159,13 @@ def _mode_banner():
         print("  " + blue("• plan mode on") + dim("  · read-only, I'll propose a plan first  · shift+tab or /mode"))
 
 def _slash_menu():
-    rows = ["%-10s %s" % (c, dim(d)) for c, d in SLASH_COMMANDS]
+    rows = ["%-12s %s" % (c, dim(d)) for c, d in SLASH_COMMANDS]
+    cmds = [c for c, _ in SLASH_COMMANDS]
+    for n in my_skill_names():                         # your pinned skills, typeable as /<name>
+        rows.append("%-12s %s" % ("/" + n, orange("★ ") + dim("my skill — load & use")))
+        cmds.append("/" + n)
     sel = select_menu(orange("  / ") + dim("pick a command   ↑/↓ Enter · Esc to cancel"), rows)
-    return SLASH_COMMANDS[sel][0] if sel is not None else None
+    return cmds[sel] if sel is not None else None
 
 def _complete_word(word):
     import glob as _glob
@@ -1464,11 +1521,13 @@ def select_menu(title, rows, idx=0):
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
-def skills_browser():
-    """A polished, scrollable browser for the installed Skills - colour hierarchy
-    (names pop, descriptions recede), width-fit with ellipsis, full-block redraw +
-    cleanup. ↑/↓ scroll, type to filter, Enter returns the chosen skill name, Esc."""
-    names = list(_SKILLS)
+def skills_browser(names=None, title="Skills", saved=None, hint="enter to add"):
+    """A polished, scrollable browser for Skills - colour hierarchy (names pop,
+    descriptions recede), width-fit with ellipsis, full-block redraw + cleanup.
+    ↑/↓ scroll, type to filter, Enter returns the chosen skill name, Esc cancels.
+    `saved` is a set of names to flag with a ★ (already in My Skills)."""
+    if names is None: names = list(_SKILLS)
+    saved = saved or set()
     if not names: return None
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         for n in names: print("  " + orange(n) + dim("  " + (_SKILLS[n]["description"] or "")[:60]))
@@ -1494,17 +1553,20 @@ def skills_browser():
         if cur[0] >= m: cur[0] = max(0, m - 1)
         if cur[0] < top[0]: top[0] = cur[0]
         elif cur[0] >= top[0] + vis: top[0] = cur[0] - vis + 1
-        descw = max(12, W - namew - 5)
-        out = [bold(orange("  Skills")) + dim("  %d" % len(names)) +
-               dim("      ↑↓ scroll · type to filter · enter · esc")]
+        descw = max(12, W - namew - 7)
+        out = [bold(orange("  " + title)) + dim("  %d" % len(names)) +
+               dim("      ↑↓ scroll · type to filter · %s · esc" % hint)]
         for r in range(vis):
             mi = top[0] + r
             if mi < m:
                 n = names[fil[0][mi]]; d = " ".join((_SKILLS[n]["description"] or "").split())
                 if len(d) > descw: d = d[:descw - 1] + "…"
                 nc = n[:namew].ljust(namew)
-                out.append(orange("▸ ") + bold(nc) + " " + d if mi == cur[0]
-                           else "  " + blue(nc) + " " + dim(d))
+                star = orange("★") if n in saved else " "
+                if mi == cur[0]:
+                    out.append(orange("▸ ") + star + " " + bold(nc) + " " + d)
+                else:
+                    out.append("  " + star + " " + blue(nc) + " " + dim(d))
             else:
                 out.append("")
         flt = ("  filter: " + bold(query[0])) if query[0] else ""
@@ -1668,6 +1730,7 @@ def main():
     set_theme(file_config().get("theme", "ember"))   # restore the saved theme
     _seed_skills()                                    # ship example Vanta skills on first run
     refresh_context()                                 # auto-load VANTA.md/AGENTS.md/CLAUDE.md + skills
+    load_myskills()                                   # restore the user's pinned My Skills
     try:
         import readline, atexit
         _hist = os.path.expanduser("~/.vanta-code/history")
@@ -1827,20 +1890,43 @@ def main():
                     n, info = install_skills(repo)
                     if n: print(green("  ✓ installed %d skill(s)" % n)); refresh_context()
                     else: print(red("  couldn't install: " + str(info)))
+                elif rest.split(" ", 1)[0] in ("remove", "rm", "forget"):
+                    parts = rest.split(None, 1)
+                    nm = parts[1].strip() if len(parts) > 1 else ""
+                    if nm and remove_myskill(nm): print(dim("  removed " + nm + " from My Skills."))
+                    else: print(dim("  not in My Skills. (your skills: %s)" % (", ".join(my_skill_names()) or "none")))
                 else:
                     refresh_context()
                     if not _SKILLS:
                         print(dim("  no skills yet. Try  /skills install  (grabs Anthropic's skills),"))
                         print(dim("  or drop a SKILL.md folder into ~/.vanta-code/skills/ or ~/.claude/skills/."))
                     else:
-                        picked = skills_browser()               # scrollable, styled
+                        picked = skills_browser(saved=set(my_skill_names()))   # ★ marks pinned ones
                         if picked and picked in _SKILLS:
-                            s = _SKILLS[picked]
-                            print("  " + bold(orange(s["name"])))
+                            s = _SKILLS[picked]; newly = add_myskill(picked)
+                            if newly:
+                                print("  " + orange("★ ") + bold(orange("pinned ")) + bold(s["name"]) + dim("  to My Skills"))
+                            else:
+                                print("  " + orange("★ ") + bold(s["name"]) + dim("  is already in My Skills"))
                             d = " ".join((s["description"] or "(no description)").split())
-                            print(dim("  " + (d[:400] + ("…" if len(d) > 400 else ""))))
-                            print(dim('  the agent loads this with  use_skill("%s")' % s["name"]))
+                            print(dim("  " + (d[:300] + ("…" if len(d) > 300 else ""))))
+                            print(dim("  use it anytime:  /myskills   ·   or just type  /%s" % s["name"]))
                         print(dim("  add more:  /skills install [owner/repo or url]"))
+            elif name in ("myskills", "myskill"):
+                refresh_context()
+                mine = my_skill_names()
+                if not mine:
+                    print(dim("  no pinned skills yet. Open  /skills , highlight one and press Enter to pin it here."))
+                else:
+                    picked = skills_browser(mine, title="My Skills", saved=set(mine), hint="enter to use")
+                    if picked and picked in _SKILLS:
+                        load_skill_into(history, picked)
+                    else:
+                        print(dim("  your skills:  " + "  ".join("/" + n for n in mine)))
+                        print(dim("  remove one with  /skills remove <name>"))
+            elif name in {n.lower() for n in my_skill_names()}:    # typed /<a-pinned-skill>
+                real = next(n for n in my_skill_names() if n.lower() == name)
+                load_skill_into(history, real)
             else: print(dim("  unknown command. /help for the list."))
             continue
         try:

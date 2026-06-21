@@ -166,7 +166,7 @@
     ]
   },
   "vcode": {
-    "version": "3.3",
+    "version": "3.4",
     "summary": "Vanta Code (vcode) - a Claude Code-style terminal coding agent for Vanta. Just: vanbrew install vcode, then vcode (it prompts for your API key). edit/search/glob, diffs, themes, run_app, history, full model lists",
     "deps": [
       "vanta"
