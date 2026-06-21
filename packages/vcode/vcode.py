@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "3.9"
+VERSION = "4.0"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -530,9 +530,27 @@ def _confirm(action):
     if ans == "a": MODE["v"] = "auto"; return True
     return ans in ("y", "yes")
 
+_DOC_SKILL = {".pdf": "pdf", ".docx": "docx", ".doc": "docx",
+              ".xlsx": "xlsx", ".xls": "xlsx", ".pptx": "pptx", ".ppt": "pptx"}
 def tool_read_file(a):
-    p = os.path.expanduser(a["path"])
-    with open(p, "r") as f: txt = f.read()
+    p = os.path.expanduser(a.get("path", ""))
+    if not p: return "no path given", "error"
+    if not os.path.exists(p):
+        return "no such file: %s  (use glob or list_files to find the right path)" % p, "missing"
+    if os.path.isdir(p):
+        return "%s is a directory, not a file - use list_files or glob to see what's inside." % p, "is a dir"
+    ext = os.path.splitext(p)[1].lower()
+    skill = _DOC_SKILL.get(ext)
+    if skill:                                          # binary doc: don't read as text
+        hint = (' Call use_skill("%s") and follow it - the skill bundles scripts to do this.' % skill) \
+               if skill in _SKILLS else ' Use the bash tool with a converter (e.g. pdftotext / a python lib).'
+        return ("%s is a %s document (binary) - reading it as text won't work. To get its "
+                "contents, extract them first.%s" % (os.path.basename(p), ext.lstrip(".").upper(), hint)), "binary doc"
+    try:
+        with open(p, "r", errors="replace") as f: txt = f.read()
+    except Exception as e:
+        return ("could not read %s as text (%s). If it's a binary/Office/PDF file, use the "
+                "matching skill (use_skill) or the bash tool." % (p, e)), "read error"
     if len(txt) > 60000: txt = txt[:60000] + "\n... (truncated)"
     return txt, "%d lines" % (txt.count("\n") + 1)
 
@@ -1983,7 +2001,13 @@ def main():
                 except Exception as e:
                     print(red("  " + str(e)))
             continue
-        if line.startswith("/"):
+        # A leading '/' is a command ONLY if it's command-shaped (/word) and isn't an
+        # actual path - so "/Users/me/file.pdf" or "/tmp" is sent to the agent, not
+        # rejected as an unknown command.
+        _first = line.split(" ", 1)[0]
+        _is_cmd = (line.startswith("/") and re.match(r"^/[A-Za-z0-9][\w-]*$", _first)
+                   and not os.path.exists(os.path.expanduser(_first)))
+        if _is_cmd:
             cmd = line[1:].split(" ", 1)
             name = cmd[0].lower(); rest = cmd[1].strip() if len(cmd) > 1 else ""
             if name in ("exit", "quit"): print(dim("  bye.")); return
