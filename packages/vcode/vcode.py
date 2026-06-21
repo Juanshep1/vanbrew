@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "3.0"
+VERSION = "3.1"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -275,6 +275,7 @@ def install_skills(repo="https://github.com/anthropics/skills"):
         shutil.rmtree(tmp, ignore_errors=True); return 0, str(e)
     n = 0
     for root, dirs, files in os.walk(tmp):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]   # skip .git, .gemini dup dirs
         if "SKILL.md" in files:
             nm = os.path.basename(root)
             if nm not in ("", ".", "template"):
@@ -299,14 +300,22 @@ def discover_skills():
     return _SKILLS
 
 def skills_prompt():
+    # Scales to any number of skills: with a handful, list name+description; with
+    # many (a big installed pile), list NAMES only + a find_skill hint, so the
+    # context stays lean instead of ballooning by ~5k tokens.
     if not _SKILLS: return ""
-    lines = ["\n\n# Skills available (reusable expertise; Claude-Code compatible)",
-             "When the user's task matches one of these Skills, call the `use_skill` tool with its name FIRST to load its full instructions, then follow them. A skill's folder may bundle scripts/files - read or run them as its instructions say."]
-    for s in _SKILLS.values():
-        d = " ".join((s["description"] or "(no description)").split())   # collapse whitespace
-        if len(d) > 200: d = d[:197] + "..."                            # keep the prompt lean
-        lines.append("- **%s**: %s" % (s["name"], d))
-    return "\n".join(lines)
+    n = len(_SKILLS)
+    out = ["\n\n# Skills available (reusable expertise; Claude-Code compatible)"]
+    if n <= 25:
+        out.append("When a task matches a Skill, call `use_skill` with its name FIRST to load its full instructions, then follow them. A skill folder may bundle scripts/files - read or run them as it says.")
+        for s in _SKILLS.values():
+            d = " ".join((s["description"] or "(no description)").split())
+            if len(d) > 200: d = d[:197] + "..."
+            out.append("- **%s**: %s" % (s["name"], d))
+    else:
+        out.append("You have %d Skills installed. To use one, call `use_skill(name)`; if you're not sure which fits a task, call `find_skill(\"keyword\")` to search them by name/description. Available skill names:" % n)
+        out.append(", ".join(_SKILLS.keys()))
+    return "\n".join(out)
 
 _EXAMPLE_SKILLS = {
 "vanta-web-app": """---
@@ -419,7 +428,23 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
     {"name": "use_skill", "description": "Load a Skill's full instructions by name (see the Skills list in your context). Call this FIRST when a task matches a skill, then follow what it returns. The skill's folder may contain scripts/files you can read with read_file or run with bash.",
      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
+    {"name": "find_skill", "description": "Search your installed Skills by keyword (matches names + descriptions). Use this when you have many skills and need to find the right one for a task; then call use_skill on the match.",
+     "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
 ]
+
+def tool_find_skill(a):
+    q = (a.get("query") or "").lower().strip()
+    if not q:
+        return "Pass a keyword to search for.", "no query"
+    hits = [s for s in _SKILLS.values()
+            if q in s["name"].lower() or q in (s["description"] or "").lower()]
+    if not hits:
+        return "No skills match %r (%d installed). Try a broader keyword." % (q, len(_SKILLS)), "no match"
+    rows = []
+    for s in hits[:25]:
+        d = " ".join((s["description"] or "").split())
+        rows.append("- %s: %s" % (s["name"], d[:160]))
+    return "Skills matching %r:\n%s" % (q, "\n".join(rows)), "%d match" % len(hits)
 
 def tool_use_skill(a):
     nm = (a.get("name") or "").strip()
@@ -678,7 +703,7 @@ DISPATCH = {"read_file": tool_read_file, "write_file": tool_write_file,
             "list_files": tool_list_files, "make_dir": tool_make_dir,
             "move_path": tool_move_path, "delete_path": tool_delete_path,
             "run_vanta": tool_run_vanta, "run_app": tool_run_app, "bash": tool_bash,
-            "use_skill": tool_use_skill}
+            "use_skill": tool_use_skill, "find_skill": tool_find_skill}
 
 def tool_label(name, a):
     if name == "read_file":  return "Read(%s)" % a.get("path", "")
@@ -1727,8 +1752,11 @@ def main():
                         print(dim("  or drop a SKILL.md folder into ~/.vanta-code/skills/ or ~/.claude/skills/."))
                     else:
                         print(dim("  %d skill(s) the agent can use:" % len(_SKILLS)))
-                        for s in _SKILLS.values():
-                            print("  " + orange("%-20s" % s["name"]) + dim(" " + (s["description"] or "")[:64]))
+                        for i, s in enumerate(_SKILLS.values()):
+                            if i >= 40:
+                                print(dim("  …and %d more — the agent finds them with find_skill" % (len(_SKILLS) - 40)))
+                                break
+                            print("  " + orange("%-22s" % s["name"]) + dim(" " + (s["description"] or "")[:50]))
                         print(dim("  add more:  /skills install [owner/repo or url]"))
             else: print(dim("  unknown command. /help for the list."))
             continue
