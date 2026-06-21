@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "3.7"
+VERSION = "3.8"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -1220,10 +1220,12 @@ def _decorate_line(s):
     return blue(s[:i]) + s[i:]
 
 def read_line():
-    """A small raw-mode line editor. Type '/' and a command autosuggests inline
-    (blue, faint ghost rest) - Tab fills it in; '/' alone + Tab opens the menu.
-    Shift+Tab cycles the permission mode; ↑/↓ recall history; ←/→ move; it
-    horizontal-scrolls so long lines never wrap. Falls back to input() (no tty)."""
+    """A small raw-mode line editor. Lone '/' on an empty line opens a command
+    dropdown (↑/↓ to browse, Enter/Tab to pick); start typing and it collapses to
+    an inline autosuggest (blue command + faint ghost) you accept with Tab. Long
+    input WORD-WRAPS onto aligned continuation rows (no horizontal scroll). Shift+Tab
+    cycles the permission mode; ↑/↓ recall history; ←/→ move; batched input (paste,
+    held keys, phones) is handled char-by-char. Falls back to input() (no tty)."""
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         return input(_editor_prompt()[0])
     try:
@@ -1236,26 +1238,83 @@ def read_line():
     except Exception:
         return input(_editor_prompt()[0])
     buf = []; cur = [0]; hidx = [len(_HIST)]; saved = [""]
-    def render():
+    drawn_rows = [1]; cur_row = [0]                  # last render's row count + cursor row
+    def _layout(text, fw, cw):
+        # word-wrap into visual rows: list of (start, end) char ranges. Breaks at the
+        # last space that fits; falls back to a hard break for an over-long word.
+        rows = []; i = 0; n = len(text); width = fw
+        while True:
+            if n - i <= width:
+                rows.append((i, n)); break
+            seg = text[i:i + width]; sp = seg.rfind(" ")
+            brk = i + sp + 1 if sp > 0 else i + width
+            rows.append((i, brk)); i = brk; width = cw
+        return rows
+    def render(final=False):
         prompt_disp, prompt_w = _editor_prompt()    # recompute so mode changes show live
-        avail = max(8, term_width() - prompt_w - 1)
+        W = max(20, term_width()); usable = W - 1
+        fw = max(4, usable - prompt_w); indent = prompt_w; cw = max(4, usable - indent)
         full = "".join(buf)
-        start = cur[0] - avail if cur[0] > avail else 0
-        vis = full[start:start + avail]
-        disp = vis; ghost = ""
-        if COLOR and start == 0:                     # only when the line isn't scrolled
-            disp = _decorate_line(vis)               # leading /command shown in blue
-            if cur[0] == len(buf):                    # ghost-suggest the rest, faint
-                sg = _suggest_token(full, cur[0])
-                if sg:
-                    suf = sg[2][len(sg[1]):]
-                    if suf and len(vis) + len(suf) <= avail:
-                        ghost = dim(suf)
-        sys.stdout.write("\r\033[K" + prompt_disp + disp + ghost + "\r")
-        col = prompt_w + (cur[0] - start)
-        if col > 0:
-            sys.stdout.write("\033[%dC" % col)
+        rows = _layout(full, fw, cw)
+        crow = len(rows) - 1; ccol = cur[0] - rows[-1][0]    # cursor row/col
+        for ri, (a, bnd) in enumerate(rows):
+            if a <= cur[0] < bnd: crow = ri; ccol = cur[0] - a; break
+        if cur_row[0] > 0: sys.stdout.write("\033[%dA" % cur_row[0])   # to row 0 of last draw
+        sys.stdout.write("\r\033[J")                                   # clear it + everything below
+        lines = []
+        for ri, (a, bnd) in enumerate(rows):
+            seg = full[a:bnd]
+            if ri == 0:
+                disp = seg
+                if COLOR and len(rows) == 1:          # single line: blue /command + faint ghost
+                    disp = _decorate_line(seg)
+                    if cur[0] == len(buf) and not final:
+                        sg = _suggest_token(full, cur[0])
+                        if sg:
+                            suf = sg[2][len(sg[1]):]
+                            if suf and prompt_w + len(seg) + len(suf) <= usable:
+                                disp += dim(suf)
+                lines.append(prompt_disp + disp)
+            else:
+                lines.append((" " * indent) + seg)
+        sys.stdout.write("\n".join(lines))
+        up = (len(rows) - 1) - crow                   # from last drawn row back to cursor row
+        if up > 0: sys.stdout.write("\033[%dA" % up)
+        sys.stdout.write("\r")
+        tcol = (prompt_w if crow == 0 else indent) + ccol
+        if tcol > 0: sys.stdout.write("\033[%dC" % tcol)
         sys.stdout.flush()
+        drawn_rows[0] = len(rows); cur_row[0] = crow
+    # an inline command dropdown: lone '/' opens it (browse with ↑/↓, Enter/Tab to
+    # pick); typing any letter collapses it back to the inline ghost-fill editor.
+    menu = [False]; msel = [0]; mtop = [0]; mitems = [[]]
+    def menu_draw():
+        prompt_disp, prompt_w = _editor_prompt()
+        items = mitems[0]; m = len(items)
+        MV = min(m, 8)
+        if msel[0] < mtop[0]: mtop[0] = msel[0]
+        elif msel[0] >= mtop[0] + MV: mtop[0] = msel[0] - MV + 1
+        if mtop[0] > max(0, m - MV): mtop[0] = max(0, m - MV)
+        if mtop[0] < 0: mtop[0] = 0
+        descw = max(4, term_width() - 16)
+        out = ["\r\033[K" + prompt_disp + blue("/")]
+        for r in range(MV):
+            mi = mtop[0] + r
+            cmd, desc = items[mi]; desc = desc[:descw]
+            if mi == msel[0]:
+                out.append("\r\033[K" + orange("❯ ") + bold(cmd.ljust(12)) + " " + desc)
+            else:
+                out.append("\r\033[K  " + blue(cmd.ljust(12)) + " " + dim(desc))
+        sys.stdout.write("\n".join(out))
+        sys.stdout.write("\033[%dA\r\033[%dC" % (MV, prompt_w + 1))   # back to input line, after '/'
+        sys.stdout.flush()
+    def menu_erase():
+        sys.stdout.write("\r\033[J"); sys.stdout.flush()   # clear input line + dropdown below
+    def menu_open():                                   # pinned skills first, then commands
+        mitems[0] = [("/" + n, "★ my skill") for n in my_skill_names()] + list(SLASH_COMMANDS)
+        menu[0] = True; msel[0] = 0; mtop[0] = 0
+        buf[:] = ["/"]; cur[0] = 1
+        menu_draw()
     def raw():
         nw = termios.tcgetattr(fd)
         nw[3] = nw[3] & ~(termios.ICANON | termios.ECHO | termios.ISIG)
@@ -1276,53 +1335,61 @@ def read_line():
                 if r:                                          # arrow escape across reads
                     try: b += os.read(fd, 8)
                     except OSError: pass
-            if b == b"\x03":                                   # Ctrl-C
-                termios.tcsetattr(fd, termios.TCSADRAIN, old); raise KeyboardInterrupt
-            if b == b"\x04":                                   # Ctrl-D
-                if buf: continue
-                termios.tcsetattr(fd, termios.TCSADRAIN, old); raise EOFError
-            if b.endswith(b"\r") or b.endswith(b"\n"):          # submit (Enter), batch-safe:
-                head = b.rstrip(b"\r\n")                         # a read may carry text + Enter
-                if head:
-                    try: txt = head.decode("utf-8")
-                    except Exception: txt = ""
-                    for ch in txt:
-                        if ch >= " ": buf.insert(cur[0], ch); cur[0] += 1
-                termios.tcsetattr(fd, termios.TCSADRAIN, old)
-                sys.stdout.write("\n"); sys.stdout.flush()
-                return "".join(buf)
-            if b in (b"\x7f", b"\x08"):                         # backspace
-                if cur[0] > 0: del buf[cur[0] - 1]; cur[0] -= 1; render()
+            if menu[0]:                                        # the '/' dropdown owns keys
+                if b[:1] == b"\x1b" and b[1:2] == b"[":         # ↑/↓ browse (batch-safe)
+                    up = b.count(b"\x1b[A"); down = b.count(b"\x1b[B")
+                    if up or down:
+                        msel[0] = (msel[0] + down - up) % len(mitems[0]); menu_draw()
+                    continue
+                if b == b"\x1b":                               # Esc cancels the dropdown
+                    menu[0] = False; menu_erase(); buf[:] = []; cur[0] = 0; render(); continue
+                bs = bytearray(b); i = 0
+                while i < len(bs):
+                    byte = bs[i]; i += 1
+                    if byte in (9, 10, 13):                    # Tab / Enter -> pick the highlighted
+                        cmd = mitems[0][msel[0]][0]
+                        menu[0] = False; menu_erase()
+                        pd, _pw = _editor_prompt()
+                        sys.stdout.write(pd + _decorate_line(cmd) + "\n"); sys.stdout.flush()
+                        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                        return cmd
+                    if byte == 3:                              # Ctrl-C
+                        termios.tcsetattr(fd, termios.TCSADRAIN, old); raise KeyboardInterrupt
+                    if byte in (8, 127):                       # backspace deletes '/', closes
+                        menu[0] = False; menu_erase(); buf[:] = []; cur[0] = 0; render(); break
+                    if 32 <= byte <= 126:                      # typing -> collapse to inline fill
+                        menu[0] = False; menu_erase()
+                        buf[:] = ["/", chr(byte)]; cur[0] = 2
+                        while i < len(bs):                     # carry any further typed chars
+                            nb = bs[i]; i += 1
+                            if 32 <= nb <= 126: buf.insert(cur[0], chr(nb)); cur[0] += 1
+                        render(); break
                 continue
-            if b[:1] == b"\x1b":                               # escape / arrows
+            if b[:1] == b"\x1b":                               # escape / arrows (whole read)
                 if b[1:2] == b"[":
-                    k = b[2:3]
-                    if k == b"Z":                              # Shift+Tab: cycle mode
-                        MODE["v"] = MODE_ORDER[(MODE_ORDER.index(MODE["v"]) + 1) % len(MODE_ORDER)]
-                        render()
-                    elif k == b"C" and cur[0] < len(buf): cur[0] += 1; render()
-                    elif k == b"D" and cur[0] > 0: cur[0] -= 1; render()
-                    elif k == b"A" and hidx[0] > 0:
+                    z = b.count(b"\x1b[Z")                     # Shift+Tab cycles the mode
+                    if z:
+                        for _ in range(z):
+                            MODE["v"] = MODE_ORDER[(MODE_ORDER.index(MODE["v"]) + 1) % len(MODE_ORDER)]
+                        render(); continue
+                    right = b.count(b"\x1b[C"); left = b.count(b"\x1b[D")   # count: held key batches
+                    if right or left:
+                        cur[0] = max(0, min(len(buf), cur[0] + right - left)); render(); continue
+                    if b"\x1b[A" in b and hidx[0] > 0:         # Up: previous history
                         if hidx[0] == len(_HIST): saved[0] = "".join(buf)
-                        hidx[0] -= 1; buf[:] = list(_HIST[hidx[0]]); cur[0] = len(buf); render()
-                    elif k == b"B" and hidx[0] < len(_HIST):
+                        hidx[0] -= 1; buf[:] = list(_HIST[hidx[0]]); cur[0] = len(buf); render(); continue
+                    if b"\x1b[B" in b and hidx[0] < len(_HIST):  # Down: next history
                         hidx[0] += 1
                         buf[:] = list(_HIST[hidx[0]]) if hidx[0] < len(_HIST) else list(saved[0])
-                        cur[0] = len(buf); render()
-                    elif k == b"H": cur[0] = 0; render()
-                    elif k == b"F": cur[0] = len(buf); render()
+                        cur[0] = len(buf); render(); continue
+                    if b"\x1b[H" in b: cur[0] = 0; render(); continue
+                    if b"\x1b[F" in b: cur[0] = len(buf); render(); continue
                 continue
             if b == b"\t":                                     # Tab: accept the suggestion
                 s = "".join(buf); j = cur[0]
                 while j > 0 and s[j - 1] not in (" ", "\t"):
                     j -= 1
                 word = s[j:cur[0]]
-                if word == "/":                                # lone '/' + Tab -> browse menu
-                    termios.tcsetattr(fd, termios.TCSADRAIN, old)
-                    sys.stdout.write("\n"); sys.stdout.flush()
-                    picked = _slash_menu()
-                    if picked is not None: return picked
-                    raw(); render(); continue
                 if word and word[0] in "/#":                   # fill in the /command or #skill
                     sg = _suggest_token(s, cur[0])
                     if sg:
@@ -1332,15 +1399,35 @@ def read_line():
                 if comp and comp != word:
                     buf[j:cur[0]] = list(comp); cur[0] = j + len(comp); render()
                 continue
-            try:
-                txt = b.decode("utf-8")
+            if b == b"/" and not buf:                          # lone '/' opens the dropdown
+                menu_open(); continue
+            # everything else: process the read CHARACTER-BY-CHARACTER so a batched read
+            # (paste, key-repeat, phone keyboards) of text + backspaces + Enter is safe.
+            try: s = b.decode("utf-8")
             except Exception:
-                continue
-            ins = "".join(ch for ch in txt if ch >= " ")
-            if ins:
-                for ch in ins:
+                try: s = b.decode("utf-8", "ignore")
+                except Exception: s = ""
+            submit = False
+            for ch in s:
+                o = ord(ch)
+                if o in (10, 13): submit = True; break          # Enter
+                if o == 3:                                      # Ctrl-C
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old); raise KeyboardInterrupt
+                if o == 4:                                      # Ctrl-D (only exits on empty line)
+                    if not buf:
+                        termios.tcsetattr(fd, termios.TCSADRAIN, old); raise EOFError
+                    continue
+                if o in (8, 127):                               # backspace / DEL
+                    if cur[0] > 0: del buf[cur[0] - 1]; cur[0] -= 1
+                    continue
+                if ch >= " " and o != 127:                      # printable (incl. unicode)
                     buf.insert(cur[0], ch); cur[0] += 1
-                render()
+            if submit:
+                cur[0] = len(buf); render(final=True)           # cursor to end of the last row
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                sys.stdout.write("\n"); sys.stdout.flush()
+                return "".join(buf)
+            render()
     finally:
         try: termios.tcsetattr(fd, termios.TCSADRAIN, old)
         except Exception: pass
