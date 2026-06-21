@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "3.8"
+VERSION = "3.9"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -794,17 +794,40 @@ def run_tool(name, a):
     return result
 
 # --------------------------------------------------------------- LLM client --
-def http_json(url, payload, headers, timeout=120):
+def http_json(url, payload, headers, timeout=300, retries=3):
+    """POST JSON and parse the reply. Big generations can take minutes, so the read
+    timeout is generous (300s) and transient failures - read/connect timeouts, dropped
+    connections, 429/5xx - are retried with backoff instead of killing the turn."""
+    import socket
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode("utf-8", "replace"))
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", "replace")
-        raise RuntimeError("API error %s: %s" % (e.code, body[:500]))
-    except urllib.error.URLError as e:
-        raise RuntimeError("could not reach the API: %s" % getattr(e, "reason", e))
+    last = None
+    for attempt in range(retries):
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read().decode("utf-8", "replace"))
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")
+            if e.code in (408, 409, 425, 429, 500, 502, 503, 504) and attempt < retries - 1:
+                last = RuntimeError("API error %s: %s" % (e.code, body[:300]))
+                time.sleep(1.5 * (attempt + 1)); continue
+            raise RuntimeError("API error %s: %s" % (e.code, body[:500]))
+        except (socket.timeout, TimeoutError):
+            last = RuntimeError("the API kept timing out (no response within %ds). "
+                                "The model may be overloaded — try again, or pick a faster "
+                                "model with /model." % timeout)
+            if attempt < 1: time.sleep(1.0); continue      # one extra try only (don't burn N×timeout)
+            raise last
+        except urllib.error.URLError as e:
+            reason = getattr(e, "reason", e)
+            last = RuntimeError("could not reach the API: %s" % reason)
+            if attempt < retries - 1: time.sleep(1.5 * (attempt + 1)); continue
+            raise last
+        except (ConnectionError, socket.error) as e:           # reset/broken pipe mid-stream
+            last = RuntimeError("connection dropped: %s" % e)
+            if attempt < retries - 1: time.sleep(1.5 * (attempt + 1)); continue
+            raise last
+    if last: raise last
 
 def to_openai_msgs(history):
     out = []
