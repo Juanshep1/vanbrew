@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "4.0"
+VERSION = "4.1"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -111,7 +111,9 @@ SYSTEM = """You are Vanta Code, a focused terminal coding agent that specializes
 - Loops: `for each item in <list>` ... `end`; `while <cond>` ... `end`; numeric ranges via `range(a, b)`.
 - Lists: `let xs be []`, `add 3 to xs`, index `xs[0]`, `length(xs)`. Maps: `let m be {"k": 1}`, read `m["k"]`, set `change m at "k" to 2`, `keys(m)`.
 - Strings: `uppercase(s)`, `lowercase(s)`, `trim(s)`, `slice(s, a, b)`, `replace(s, old, new)`, `split(s, sep)`, `join(list, sep)`, `starts_with(s, pre)`, `ends_with(s, suf)`, `find(s, sub)` (index or -1), `contains(s, sub)`, `reverse`, `length(s)`. NOTE the case builtins are `uppercase`/`lowercase` — there is NO `upper`/`lower`.
-- String interpolation: `"hi {name}"` inserts the value of name. To put a LITERAL brace in a string, double it: `{{` and `}}` (this matters a LOT when emitting CSS/JS).
+- Triple-quoted strings (Vanta 4.5+): `\"\"\"...\"\"\"` is a RAW multi-line string - write HTML/CSS/JS verbatim across many lines, braces are LITERAL (no `{{`/`}}` escaping). This is the clean way to embed a web page. For dynamic bits, concatenate: `\"\"\"<div>\"\"\" + text(n) + \"\"\"</div>\"\"\"`.
+- String interpolation (single-line `"..."` only): `"hi {name}"` inserts name's value; `"{2 + 2}"` -> `4`. In single-line strings a literal brace must be doubled (`{{`/`}}`); inside `\"\"\"triple\"\"\"` strings braces are already literal so just write them once.
+- Comments: `# ...` to end of line (a whole line or trailing). Use them to annotate long files.
 - Web + system builtins: `serve(port, handler)` (handler takes a request map, gives back text or a map {status, body, type, headers}); `http_get(url[, headers])` and `http_post(url, body[, headers])` -> {status, body, headers}; `read_file`/`write_file`/`append_file`/`list_dir`/`make_dir`/`remove_path`; `from_json`/`to_json`; `run(cmd)` and `shell(cmd)`; `open_url(url)`; `home_dir()`, `path_join(...)`, `dirname`, `basename`; `now()`, `today()`, `clock()`; `run_vanta(code)` runs Vanta source in-process; `ask(prompt)` reads a line of input; `os_name()`; `typeof(x)` -> "string"/"number"/"bool"/"list"/"map"/"nothing".
 - Every block (`if`, `for each`, `while`, `to`) closes with `end`. There are no curly-brace code blocks and no semicolons. `times` is reserved - don't use it as a variable.
 
@@ -132,24 +134,24 @@ So for "make this run without Python" / "compile to a native binary" / "ship a s
 - Keep answers tight: a sentence on what you built, then the result. You may use light markdown (**bold**, `code`, # headings, ```fenced``` blocks); it renders in the terminal.
 
 # Building a visual app in Vanta (write this from scratch)
-A Vanta GUI/web app builds an HTML page as a string, writes it to a file, and opens it. CRITICAL: in Vanta strings a single { } means interpolation, so write `{{` and `}}` for every literal brace in CSS/JS. Use single quotes for all HTML attributes so you never escape double quotes. Working skeleton (a draggable card) - adapt the UI and logic to whatever the user asked for:
+A Vanta GUI/web app builds an HTML page as a string, writes it to a file, and opens it. Use a `\"\"\"triple-quoted\"\"\"` raw string for the whole page: it's multi-line and braces are LITERAL, so you write CSS/JS exactly as-is with NO `{{`/`}}` escaping and no line-by-line concatenation. Use single quotes for HTML attributes so you never escape double quotes. Working skeleton (a draggable card) - adapt the UI and logic to whatever the user asked for:
 
-let html be "<!doctype html><html><head><meta charset='utf-8'><style>"
-change html to html + "body{{margin:0;height:100vh;font-family:system-ui;background:#0b1020;color:#eef}}"
-change html to html + ".card{{position:fixed;left:120px;top:120px;width:300px;padding:22px;border-radius:18px;background:#182038;box-shadow:0 20px 60px rgba(0,0,0,.5)}}"
-change html to html + ".bar{{cursor:grab;font-weight:700;margin-bottom:14px}}"
-change html to html + "</style></head><body>"
-change html to html + "<div class='card' id='card'><div class='bar' id='bar'>My App</div><div id='body'>build the UI here</div></div>"
-change html to html + "<script>"
-change html to html + "var card=document.getElementById('card'),bar=document.getElementById('bar');"
-change html to html + "bar.addEventListener('mousedown',function(e){{var sx=e.clientX,sy=e.clientY,ox=card.offsetLeft,oy=card.offsetTop;function mv(ev){{card.style.left=(ox+ev.clientX-sx)+'px';card.style.top=(oy+ev.clientY-sy)+'px';}}function up(){{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);}}document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);}});"
-change html to html + "</script></body></html>"
+let html be \"\"\"<!doctype html><html><head><meta charset='utf-8'><style>
+body { margin:0; height:100vh; font-family:system-ui; background:#0b1020; color:#eef }
+.card { position:fixed; left:120px; top:120px; width:300px; padding:22px; border-radius:18px; background:#182038; box-shadow:0 20px 60px rgba(0,0,0,.5) }
+.bar { cursor:grab; font-weight:700; margin-bottom:14px }
+</style></head><body>
+<div class='card' id='card'><div class='bar' id='bar'>My App</div><div id='body'>build the UI here</div></div>
+<script>
+var card=document.getElementById('card'),bar=document.getElementById('bar');
+bar.addEventListener('mousedown',function(e){var sx=e.clientX,sy=e.clientY,ox=card.offsetLeft,oy=card.offsetTop;function mv(ev){card.style.left=(ox+ev.clientX-sx)+'px';card.style.top=(oy+ev.clientY-sy)+'px';}function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);}document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);}});
+</script></body></html>\"\"\"
 let dest be path_join(home_dir(), "myapp.html")
 write_file(dest, html)
 open_url("file://" + dest)
 say "opened"
 
-Put real inputs/buttons in <div id='body'> and their logic in the <script> (use `{{`/`}}` for braces).
+Put real inputs/buttons in <div id='body'> and their logic in the <script>. Inside the `\"\"\"...\"\"\"` block the braces are literal - write them once. To inject a dynamic value, close the block and concatenate: `\"\"\" ... \"\"\" + text(value) + \"\"\" ... \"\"\"`. (Older single-line `change html to html + "...{{...}}..."` still works, but triple-quoted is cleaner - prefer it.)
 
 PREFER this file pattern (write HTML -> open_url) for visual apps: it has NO port and never clashes with anything. Use serve() ONLY when you truly need a live backend, and then pick an UNCOMMON HIGH PORT like 8765 - NEVER 8080, 8090, or 8100 (the user already runs apps there, e.g. a conlang site on 8080; opening those shows the wrong app). If run_app says a port is busy, change to another free high port and run_app again.
 
@@ -357,24 +359,33 @@ def skills_prompt():
 _EXAMPLE_SKILLS = {
 "vanta-web-app": """---
 name: vanta-web-app
-description: Build a web or GUI app in the Vanta language - the {{ }} brace rule, the build-HTML-string-then-open pattern, and serve() for real backends. Use when asked to make a Vanta web app, dashboard, tool, or visual program.
+description: Build a web or GUI app in the Vanta language - triple-quoted raw HTML strings, the build-HTML-string-then-open pattern, and serve() for real backends. Use when asked to make a Vanta web app, dashboard, tool, or visual program.
 ---
 
 # Building a web/GUI app in Vanta
 A Vanta visual app builds an HTML page as a STRING, writes it to a file, opens it.
 
-## The rule that trips everyone up
-In a Vanta string a single `{` means interpolation, so DOUBLE every literal brace
-in CSS/JS: write `{{` and `}}`. Use single quotes for HTML attributes.
+## Write the page as a triple-quoted raw string (Vanta 4.5+)
+`\"\"\"...\"\"\"` is a multi-line RAW string: braces are LITERAL, so you write CSS/JS
+verbatim with NO `{{`/`}}` escaping and no line-by-line concatenation. Use single
+quotes for HTML attributes.
 
 ```
 to page()
-    let css be "body{{font:16px system-ui;background:#0e1020;color:#eee;padding:40px}}"
-    give back "<!doctype html><html><head><style>" + css + "</style></head><body><h1>Hi</h1></body></html>"
+    give back \"\"\"<!doctype html><html><head><style>
+body { font:16px system-ui; background:#0e1020; color:#eee; padding:40px }
+.btn { border-radius:8px; padding:10px 16px }
+</style></head><body>
+<h1>Hi</h1>
+</body></html>\"\"\"
 end
 write_file("/tmp/app.html", page())
 open_url("/tmp/app.html")
 ```
+
+For a dynamic value, close the block and concatenate:
+`\"\"\"<h1>\"\"\" + title + \"\"\"</h1>\"\"\"`. (Single-line `"...{name}..."` still
+interpolates, doubling literal braces as `{{`/`}}`; triple-quoted is cleaner - prefer it.)
 
 ## When you need a backend
 `serve(port, handle)` on an UNCOMMON high port (8765, never 8080/8090/8100). The
