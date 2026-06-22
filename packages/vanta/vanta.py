@@ -32,7 +32,7 @@ import base64
 import hashlib
 import contextlib
 
-VERSION = "4.5"
+VERSION = "4.6"
 
 # Command-line arguments passed to a Vanta program (after the script name).
 PROGRAM_ARGS = []
@@ -2324,13 +2324,31 @@ def b_os_name(args):
 
 
 def b_open_url(args):
-    """Open a URL (or file) in the default browser - works on any OS."""
+    """Open a URL (or file) in the default browser - desktop OR phone (Android/Termux,
+    iOS/iSH). Always prints the address too, so it's tappable when no opener exists."""
     _need(args, 1, "open_url")
+    target = display(args[0])
+    is_url = target.startswith(("http://", "https://"))
+    # Android / Termux: webbrowser can't reach the phone browser; use termux-open(-url)
+    if os.environ.get("TERMUX_VERSION") or "com.termux" in (os.environ.get("PREFIX") or ""):
+        tool = (shutil.which("termux-open-url") if is_url else None) or shutil.which("termux-open")
+        if tool:
+            try:
+                subprocess.Popen([tool, target],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print("opening " + target + " ...")
+                return None
+            except Exception:
+                pass
+        print("open this on your phone:  " + target +
+              "   (for auto-open: pkg install termux-api)")
+        return None
+    # Desktop / other: honor $BROWSER (e.g. a chrome --app window), else the default
     import webbrowser
     try:
-        webbrowser.open(display(args[0]))
+        webbrowser.open(target)
     except Exception:
-        pass
+        print("open this in your browser:  " + target)
     return None
 
 

@@ -209,12 +209,17 @@ static Value B_os_name(void){
   return STR("linux");
 #endif
 }
-static Value B_open_url(Value url){ char cmd[8192];
+static Value B_open_url(Value url){ char cmd[8192]; const char* u=tostr(url); const char* px=getenv("PREFIX");
+  if(getenv("TERMUX_VERSION")||(px&&strstr(px,"com.termux"))){
+    int isurl=(strncmp(u,"http://",7)==0||strncmp(u,"https://",8)==0);
+    snprintf(cmd,sizeof cmd,"%s '%s' >/dev/null 2>&1 || printf 'open this on your phone: %%s\n' '%s'",isurl?"termux-open-url":"termux-open",u,u);
+  } else {
 #ifdef __APPLE__
-  snprintf(cmd,sizeof cmd,"open '%s' >/dev/null 2>&1",tostr(url));
+    snprintf(cmd,sizeof cmd,"open '%s' >/dev/null 2>&1",u);
 #else
-  snprintf(cmd,sizeof cmd,"xdg-open '%s' >/dev/null 2>&1",tostr(url));
+    snprintf(cmd,sizeof cmd,"xdg-open '%s' >/dev/null 2>&1",u);
 #endif
+  }
   system(cmd); return NIL(); }
 
 static Value B_reverse(Value v){ if(v.t==TS){ char* s=tostr(v); long n=strlen(s); char* r=malloc(n+1); for(long i=0;i<n;i++) r[i]=s[n-1-i]; r[n]=0; Value x=STR(r); free(r); return x; } if(v.t==TL){ Value o=LIST0(); for(long i=v.l->len-1;i>=0;i--) listpush(o,v.l->items[i]); return o; } return v; }

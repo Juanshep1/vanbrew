@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "4.1"
+VERSION = "4.2"
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -153,7 +153,9 @@ say "opened"
 
 Put real inputs/buttons in <div id='body'> and their logic in the <script>. Inside the `\"\"\"...\"\"\"` block the braces are literal - write them once. To inject a dynamic value, close the block and concatenate: `\"\"\" ... \"\"\" + text(value) + \"\"\" ... \"\"\"`. (Older single-line `change html to html + "...{{...}}..."` still works, but triple-quoted is cleaner - prefer it.)
 
-PREFER this file pattern (write HTML -> open_url) for visual apps: it has NO port and never clashes with anything. Use serve() ONLY when you truly need a live backend, and then pick an UNCOMMON HIGH PORT like 8765 - NEVER 8080, 8090, or 8100 (the user already runs apps there, e.g. a conlang site on 8080; opening those shows the wrong app). If run_app says a port is busy, change to another free high port and run_app again.
+On a DESKTOP, PREFER this file pattern (write HTML -> open_url) for visual apps: it has NO port and never clashes with anything. Use serve() only when you truly need a live backend, on an UNCOMMON HIGH PORT like 8765 - NEVER 8080, 8090, or 8100 (the user already runs apps there, e.g. a conlang site on 8080; opening those shows the wrong app). If run_app says a port is busy, change to another free high port and run_app again.
+
+ON A PHONE (Termux on Android, iSH on iPhone), PREFER serve() on a high port (8765): run_app starts the server on the device and opens http://localhost:<port>/ in the phone's browser (and prints a tappable link). `file://` HTML is unreliable in mobile browsers, so for anything visual on a phone, build a serve() app whose handler returns the HTML page. You can tell you're on a phone if the user mentions Termux/iSH/Android/iPhone or asks for an on-device server. serve() is pure Python sockets and runs fine on-device. (Termux auto-opens the browser when `termux-api` is installed; otherwise vcode prints the URL to tap.)
 
 # Building a GAME in Vanta (the vanta-game engine)
 Vanta can make real 2D games that compile to a NATIVE binary (no Python) and run in a window via SDL. A game is a .va file using the game API below; it's built from the vanta-game project with `./build.sh <name>` then run with `./<name>` (needs SDL2 + the project's sdlrt.c runtime — see github.com/Juanshep1/vanta-game). The game loop:
@@ -728,6 +730,28 @@ def find_chrome():
         if p and os.path.exists(p): return p
     return None
 
+def _is_termux():
+    return bool(os.environ.get("TERMUX_VERSION")) or "com.termux" in (os.environ.get("PREFIX") or "")
+
+def _is_ish():
+    try: return os.path.exists("/proc/ish") or "ish" in os.uname().release.lower()
+    except Exception: return False
+
+def _is_mobile():
+    return _is_termux() or _is_ish()
+
+def _mobile_open(url):
+    """Open a URL in the phone's browser. Returns True if a launcher fired."""
+    if _is_termux():
+        tool = shutil.which("termux-open-url") or shutil.which("termux-open")
+        if tool:
+            try:
+                subprocess.Popen([tool, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return True
+            except Exception:
+                pass
+    return False
+
 def _child_port(pid):
     # the TCP port THIS process is actually listening on (so we never open a
     # port some OTHER app already owns, e.g. a conlang already on 8080)
@@ -747,35 +771,46 @@ def tool_run_app(a):
     try: src = open(path).read()
     except Exception as e: return "could not read %s: %s" % (path, e), "error"
     chrome = find_chrome()
-    if "serve(" in src:   # a web server: launch it, open ITS port in a movable window
+    mobile = _is_mobile()
+    if "serve(" in src:   # a web server: launch it, open ITS port (window on desktop, browser on phone)
         proc = subprocess.Popen([v, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         port = None
         for _ in range(14):                 # wait up to ~5s for it to bind
             time.sleep(0.35)
-            port = _child_port(proc.pid)
+            port = _child_port(proc.pid)     # lsof-based (may be absent on phones)
             if port: break
             if proc.poll() is not None: break  # it exited (likely a port clash)
-        if not port:
+        if not port:                         # no lsof / not found -> read the port from the source
             m = re.search(r"serve\(\s*(\d{2,5})", src) or re.search(r"PORT\s+be\s+(\d{2,5})", src)
             sp = m.group(1) if m else None
-            if sp and sp in ("8080", "8090", "8100"):
+            if sp and sp in ("8080", "8090", "8100") and proc.poll() is not None:
                 return ("%s did not start — port %s is already taken by another app (the user runs one there). Rewrite it to serve on a free high port like 8765, then run_app again." % (os.path.basename(path), sp)), "port busy"
+            port = sp
+        if not port:
             return ("%s did not start a server (no listening port). Check it serves on a free port and try again." % os.path.basename(path)), "no port"
         url = "http://localhost:%s/" % port
+        if mobile:                           # phone: open in the device browser + print a tappable link
+            launched = _mobile_open(url)
+            print("  " + orange("➜ ") + bold(url) + ("" if launched else dim("  (tap to open)")))
+            tip = "" if launched else "  On Termux, `pkg install termux-api` lets me auto-open it."
+            return "Serving %s on your device at %s — open it in your phone's browser.%s" % (os.path.basename(path), url, tip), url
         if chrome:
             subprocess.Popen([chrome, "--app=" + url, "--window-size=980,720"],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return "Launched %s — serving %s in a movable window." % (os.path.basename(path), url), "window " + url
-        return "Launched %s — serving %s (open it in Chrome)." % (os.path.basename(path), url), url
-    # otherwise it writes a page and opens it: force a movable chromeless app-window
+        return "Launched %s — serving %s (open it in your browser)." % (os.path.basename(path), url), url
+    # otherwise it writes a page and opens it. Desktop: a chromeless app-window.
+    # Phone: the program's open_url is mobile-aware (termux-open opens the file).
     env = dict(os.environ)
-    if chrome: env["BROWSER"] = '"%s" --app=%%s' % chrome
+    if chrome and not mobile: env["BROWSER"] = '"%s" --app=%%s' % chrome
     try:
         r = subprocess.run([v, path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=25, env=env)
         out = r.stdout.decode("utf-8", "replace")
+        if mobile:
+            return (out or "(ran — the page should open in your browser; if not, the path is shown above)"), "opened"
         return (out or "(ran — its window should pop up)"), "window opened"
     except subprocess.TimeoutExpired:
-        return "(still running after 25s — if it serves, it's up; open it in Chrome)", "running"
+        return "(still running after 25s — if it serves, it's up; open it in your browser)", "running"
 
 DISPATCH = {"read_file": tool_read_file, "write_file": tool_write_file,
             "edit_file": tool_edit_file, "search": tool_search, "glob": tool_glob,

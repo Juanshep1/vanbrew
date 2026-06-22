@@ -27,7 +27,7 @@ try:                       # py3
 except ImportError:        # py2
     import urllib2 as _urlreq  # type: ignore
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 
 HOME = os.path.expanduser("~")
 VB_HOME = os.environ.get("VANBREW_HOME") or os.path.join(HOME, ".vanbrew")
@@ -58,13 +58,13 @@ def _u(path):
 #   bin:   {"name": "<cmd>", "kind": "python|vanta|exec|shell", "main": "<file>"}
 BUILTIN = {
     "vanta": {
-        "version": "4.5",
+        "version": "4.6",
         "summary": "The Vanta plain-English programming language & interpreter",
         "files": [{"source": _u("/packages/vanta/vanta.py"), "as": "vanta.py"}],
         "bin": [{"name": "vanta", "kind": "python", "main": "vanta.py"}],
     },
     "vcode": {
-        "version": "4.1",
+        "version": "4.2",
         "summary": "Vanta Code (vcode) - a Claude Code-style terminal coding agent for Vanta. `vanbrew install vcode`, then `vcode` (it prompts for your API key). edit/search/glob, diffs, themes, skills, run_app.",
         "deps": ["vanta"],
         "files": [{"source": _u("/packages/vcode/vcode.py"), "as": "vcode.py"}],
@@ -79,14 +79,14 @@ BUILTIN = {
         "bin": [{"name": "vnox", "kind": "vanta", "main": "vnox.va"}],
     },
     "vself": {
-        "version": "1.6",
+        "version": "1.7",
         "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta, shipped as NATIVE C so it runs with ZERO Python (just cc to build). `vself prog.va` runs functions/recursion/lists/maps/file I/O, and even runs web servers (serve()) and the vc compiler itself.",
         "files": [{"source": _u("/packages/vself/vanta.va.c"), "as": "vanta.va.c"},
                   {"source": _u("/packages/vself/vanta.va"), "as": "vanta.va"}],
         "bin": [{"name": "vself", "kind": "cc", "main": "vanta.va.c"}],
     },
     "vc": {
-        "version": "1.6",
+        "version": "1.7",
         "summary": "vc - a self-hosting Vanta-to-C compiler (in Vanta), shipped as NATIVE C so the compiler itself runs with ZERO Python (just cc to build it, then `vc prog.va` -> a native binary). Compiles strings/lists/maps/serve()/HTTP/JSON/filesystem + an Ebb GC - even itself and the interpreter.",
         "files": [{"source": _u("/packages/vc/vc.va.c"), "as": "vc.va.c"},
                   {"source": _u("/packages/vc/vc.va"), "as": "vc.va"}],

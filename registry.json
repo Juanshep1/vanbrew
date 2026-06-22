@@ -1,6 +1,6 @@
 {
   "vanta": {
-    "version": "4.5",
+    "version": "4.6",
     "summary": "The Vanta plain-English programming language & interpreter (4.4: HTTP client now decodes gzip/deflate + page charset)",
     "files": [
       {
@@ -43,7 +43,7 @@
     ]
   },
   "vself": {
-    "version": "1.6",
+    "version": "1.7",
     "summary": "Vanta-in-Vanta - a Vanta interpreter written in Vanta, shipped as NATIVE C so it runs with ZERO Python (just cc to build). vself prog.va runs functions/recursion/lists/maps/file I/O, and even runs web servers (serve()) and the vc compiler itself.",
     "files": [
       {
@@ -70,7 +70,7 @@
     ]
   },
   "vc": {
-    "version": "1.6",
+    "version": "1.7",
     "summary": "vc - a self-hosting Vanta-to-C compiler (in Vanta), shipped as NATIVE C so the compiler itself runs with ZERO Python (just cc to build it, then vc prog.va -> a native binary). Compiles strings/lists/maps/serve()/HTTP/JSON/filesystem + an Ebb GC - even itself and the interpreter.",
     "files": [
       {
@@ -166,7 +166,7 @@
     ]
   },
   "vcode": {
-    "version": "4.1",
+    "version": "4.2",
     "summary": "Vanta Code (vcode) - a Claude Code-style terminal coding agent for Vanta. Just: vanbrew install vcode, then vcode (it prompts for your API key). edit/search/glob, diffs, themes, run_app, history, full model lists",
     "deps": [
       "vanta"
