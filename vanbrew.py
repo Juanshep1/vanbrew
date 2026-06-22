@@ -27,7 +27,7 @@ try:                       # py3
 except ImportError:        # py2
     import urllib2 as _urlreq  # type: ignore
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 HOME = os.path.expanduser("~")
 VB_HOME = os.environ.get("VANBREW_HOME") or os.path.join(HOME, ".vanbrew")
@@ -62,6 +62,14 @@ BUILTIN = {
         "summary": "The Vanta plain-English programming language & interpreter",
         "files": [{"source": _u("/packages/vanta/vanta.py"), "as": "vanta.py"}],
         "bin": [{"name": "vanta", "kind": "python", "main": "vanta.py"}],
+    },
+    "vcode": {
+        "version": "4.1",
+        "summary": "Vanta Code (vcode) - a Claude Code-style terminal coding agent for Vanta. `vanbrew install vcode`, then `vcode` (it prompts for your API key). edit/search/glob, diffs, themes, skills, run_app.",
+        "deps": ["vanta"],
+        "files": [{"source": _u("/packages/vcode/vcode.py"), "as": "vcode.py"}],
+        "bin": [{"name": "vcode", "kind": "python", "main": "vcode.py"},
+                {"name": "vanta-code", "kind": "python", "main": "vcode.py"}],
     },
     "vnox": {
         "version": "1.0",
@@ -211,6 +219,25 @@ def quote(p):
     return '"%s"' % p
 
 # ---- fetching sources -------------------------------------------------------
+def _http_bytes(url, timeout=60):
+    """Download a URL. If TLS verification fails - common on iSH/Alpine and other
+    systems missing CA certs - retry once without verification (with a warning) so
+    install still works; the user can `apk add ca-certificates` for a proper fix."""
+    req = _urlreq.Request(url, headers={"User-Agent": "Vanbrew/" + VERSION})
+    try:
+        return _urlreq.urlopen(req, timeout=timeout).read()
+    except Exception as e:
+        if "SSL" in type(e).__name__ or "CERTIFICATE" in str(e).upper():
+            try:
+                import ssl
+                ctx = ssl._create_unverified_context()
+                warn("TLS certificate check failed; retrying without it "
+                     "(run 'apk add ca-certificates' to fix properly)")
+                return _urlreq.urlopen(req, timeout=timeout, context=ctx).read()
+            except Exception:
+                pass
+        raise
+
 def fetch_source(src, target):
     kind = src.get("kind")
     if kind == "local":
@@ -224,8 +251,7 @@ def fetch_source(src, target):
             f.write(src["text"])
     elif kind == "url":
         say(dim("    downloading " + src["url"]))
-        req = _urlreq.Request(src["url"], headers={"User-Agent": "Vanbrew/" + VERSION})
-        data = _urlreq.urlopen(req, timeout=60).read()
+        data = _http_bytes(src["url"], timeout=60)
         if src.get("sha256"):
             import hashlib
             got = hashlib.sha256(data).hexdigest()
@@ -296,9 +322,25 @@ def remove_shim(name):
             os.remove(p)
 
 # ---- commands ---------------------------------------------------------------
+def _refresh_remote(reg):
+    """Best-effort: pull the latest catalog from GitHub and merge it in, so a newly
+    added package installs without a manual 'vanbrew update'. Stays quiet on failure
+    (e.g. offline / flaky network on a phone) - the bundled catalog still works."""
+    try:
+        ensure_dirs()
+        data = _http_bytes(REGISTRY_URL, timeout=30)
+        with open(os.path.join(REG_DIR, "remote.json"), "wb") as f:
+            f.write(data)
+        _ingest(reg, json.loads(data.decode("utf-8")), "remote")
+        return True
+    except Exception:
+        return False
+
 def cmd_install(args):
     ensure_dirs()
     reg = load_registry()
+    if any(n not in reg for n in args.names):   # name not bundled? try the latest catalog
+        _refresh_remote(reg)
     state = load_state()
     seen = set()
     for name in args.names:
@@ -404,8 +446,7 @@ def cmd_info(args):
 def cmd_update(args):
     ensure_dirs()
     try:
-        req = _urlreq.Request(REGISTRY_URL, headers={"User-Agent": "Vanbrew/" + VERSION})
-        data = _urlreq.urlopen(req, timeout=30).read()
+        data = _http_bytes(REGISTRY_URL, timeout=30)
         with open(os.path.join(REG_DIR, "remote.json"), "wb") as f:
             f.write(data)
         ok("fetched the latest catalog from GitHub")

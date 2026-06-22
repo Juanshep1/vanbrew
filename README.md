@@ -11,6 +11,7 @@ Then:
 
 ```sh
 vanbrew install vanta      # now `vanta file.va` works anywhere
+vanbrew install vcode      # the terminal coding agent for Vanta (pulls vanta)
 vanbrew install vnox       # then run `vnox` to boot the V-NOx desktop OS
 vanbrew install topdeck    # now just run `topdeck`
 vanbrew search .           # browse the whole catalog
