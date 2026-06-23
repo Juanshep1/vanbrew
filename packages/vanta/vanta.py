@@ -32,7 +32,7 @@ import base64
 import hashlib
 import contextlib
 
-VERSION = "4.6"
+VERSION = "4.7"
 
 # Command-line arguments passed to a Vanta program (after the script name).
 PROGRAM_ARGS = []
@@ -2282,6 +2282,24 @@ def b_base64_decode(args):
         raise VantaError(f"that is not valid base64: {e}")
 
 
+def b_base64_to_bytes(args):
+    # base64 text -> a list of 0-255 numbers (binary-safe: for PNGs etc.)
+    _need(args, 1, "base64_to_bytes")
+    try:
+        return [b for b in base64.b64decode(display(args[0]))]
+    except Exception as e:
+        raise VantaError(f"that is not valid base64: {e}")
+
+
+def b_bytes_to_base64(args):
+    # a list of 0-255 numbers -> base64 text (e.g. to build a data: URI)
+    _need(args, 1, "bytes_to_base64")
+    if not isinstance(args[0], list):
+        raise VantaError("bytes_to_base64 needs a list of 0-255 numbers")
+    blob = bytes(int(x) & 0xFF for x in args[0])
+    return base64.b64encode(blob).decode("ascii")
+
+
 def b_hex_encode(args):
     _need(args, 1, "hex_encode")
     return display(args[0]).encode("utf-8").hex()
@@ -2540,6 +2558,81 @@ def b_http_request(args):
                          args[3] if len(args) == 4 else None)
 
 
+def b_download(args):
+    """download(url, dest [, headers]) -> map. Binary-safe: writes the raw response
+    straight to a file (no text decoding), for images / PDFs / any binary."""
+    if len(args) not in (2, 3):
+        raise VantaError("download expects a url, a destination path "
+                         "(and an optional headers map)")
+    import urllib.request
+    import urllib.error
+    url = display(args[0])
+    dest = os.path.expanduser(display(args[1]))
+    hdrs = _headers_map(args[2] if len(args) == 3 else None, "download")
+    req = urllib.request.Request(url, headers=hdrs)
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            raw = resp.read()
+            status = resp.status
+    except urllib.error.HTTPError as e:
+        return {"ok": False, "status": e.code, "bytes": 0, "path": dest,
+                "error": f"HTTP {e.code}"}
+    except urllib.error.URLError as e:
+        return {"ok": False, "status": 0, "bytes": 0, "path": dest,
+                "error": f"could not reach {url}: {getattr(e, 'reason', e)}"}
+    try:
+        with open(dest, "wb") as f:
+            f.write(raw)
+    except OSError as e:
+        raise VantaError(f"could not write {dest}: {e}")
+    return {"ok": True, "status": status, "bytes": len(raw), "path": dest, "error": ""}
+
+
+def _find_chrome():
+    cands = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+             "/Applications/Chromium.app/Contents/MacOS/Chromium",
+             shutil.which("google-chrome"), shutil.which("chromium"),
+             shutil.which("chromium-browser"), shutil.which("chrome")]
+    for p in cands:
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
+def b_render_html(args):
+    """render_html(input, out [, width, height [, mode]]) -> map. Rasterizes an HTML
+    file path (or http/file URL) with headless Chrome. mode "png" (default) -> a
+    screenshot at width x height; mode "pdf" -> a printed PDF. Returns {ok, path, bytes}."""
+    if len(args) < 2 or len(args) > 5:
+        raise VantaError("render_html expects input, out "
+                         "(and optional width, height, mode)")
+    src = display(args[0])
+    out = os.path.expanduser(display(args[1]))
+    width = int_arg(args[2], "render_html") if len(args) >= 3 else 750
+    height = int_arg(args[3], "render_html") if len(args) >= 4 else 1050
+    mode = (display(args[4]) if len(args) == 5 else "png").lower()
+    chrome = _find_chrome()
+    if not chrome:
+        return {"ok": False, "path": out, "bytes": 0,
+                "error": "Chrome/Chromium not found - install Google Chrome"}
+    url = src if "://" in src else "file://" + os.path.abspath(os.path.expanduser(src))
+    base = [chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
+            "--hide-scrollbars", "--force-device-scale-factor=1"]
+    if mode == "pdf":
+        cmd = base + ["--no-pdf-header-footer", f"--print-to-pdf={out}", url]
+    else:
+        cmd = base + [f"--screenshot={out}", f"--window-size={width},{height}", url]
+    try:
+        subprocess.run(cmd, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=90)
+    except Exception as e:
+        return {"ok": False, "path": out, "bytes": 0, "error": str(e)}
+    ok = os.path.exists(out) and os.path.getsize(out) > 0
+    return {"ok": ok, "path": out,
+            "bytes": (os.path.getsize(out) if ok else 0),
+            "error": "" if ok else "Chrome produced no output"}
+
+
 def b_serve(args):
     if len(args) not in (1, 2):
         raise VantaError("serve expects a port and a handler function "
@@ -2565,8 +2658,8 @@ def b_serve(args):
         def log_message(self, *a):
             pass
 
-        def _reply(self, status, text, ctype, extra):
-            blob = text.encode("utf-8")
+        def _reply(self, status, body, ctype, extra):
+            blob = body if isinstance(body, (bytes, bytearray)) else body.encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(blob)))
@@ -2593,6 +2686,33 @@ def b_serve(args):
             status, ctype, extra = 200, "text/html; charset=utf-8", {}
             if isinstance(result, dict):
                 status = int(result.get("status", 200))
+                hh = result.get("headers")
+                if isinstance(hh, dict):
+                    extra = {display(k): display(v) for k, v in hh.items()}
+                # binary: stream a file straight off disk (images, PDFs, downloads)
+                if "file" in result:
+                    fp = os.path.expanduser(display(result["file"]))
+                    import mimetypes
+                    ctype = display(result.get("type", result.get(
+                        "content_type", mimetypes.guess_type(fp)[0] or "application/octet-stream")))
+                    if result.get("download"):
+                        extra.setdefault("Content-Disposition",
+                                         'attachment; filename="%s"' % os.path.basename(fp))
+                    try:
+                        with open(fp, "rb") as f:
+                            data = f.read()
+                    except OSError:
+                        self._reply(404, "not found: " + fp, "text/plain; charset=utf-8", {})
+                        return
+                    self._reply(status, data, ctype, extra)
+                    return
+                # binary: an explicit list of 0-255 byte numbers
+                if isinstance(result.get("bytes"), list):
+                    data = bytes(int(x) & 0xFF for x in result["bytes"])
+                    ctype = display(result.get("type", result.get("content_type",
+                                                                   "application/octet-stream")))
+                    self._reply(status, data, ctype, extra)
+                    return
                 raw = result.get("body", "")
                 if isinstance(raw, (dict, list)):
                     text = json.dumps(raw)
@@ -2601,9 +2721,6 @@ def b_serve(args):
                     text = display(raw)
                 if "type" in result or "content_type" in result:
                     ctype = display(result.get("type", result.get("content_type")))
-                hh = result.get("headers")
-                if isinstance(hh, dict):
-                    extra = {display(k): display(v) for k, v in hh.items()}
             else:
                 text = display(result)
             self._reply(status, text, ctype, extra)
@@ -2714,6 +2831,7 @@ BUILTINS = {
     "path_join": b_path_join, "dirname": b_dirname, "basename": b_basename,
     "extname": b_extname, "home_dir": b_home_dir, "now_ms": b_now_ms,
     "base64_encode": b_base64_encode, "base64_decode": b_base64_decode,
+    "base64_to_bytes": b_base64_to_bytes, "bytes_to_base64": b_bytes_to_base64,
     "hex_encode": b_hex_encode, "hex_decode": b_hex_decode,
     "sha256": b_sha256, "md5": b_md5,
     "os_name": b_os_name, "open_url": b_open_url,
@@ -2723,6 +2841,7 @@ BUILTINS = {
     # the web: HTTP client, HTTP server, and helpers
     "http_get": b_http_get, "http_post": b_http_post,
     "http_request": b_http_request, "serve": b_serve, "sleep": b_sleep,
+    "download": b_download, "render_html": b_render_html,
     "url_encode": b_url_encode, "url_decode": b_url_decode,
     "html_escape": b_html_escape,
 }

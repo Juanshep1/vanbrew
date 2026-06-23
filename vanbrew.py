@@ -27,7 +27,7 @@ try:                       # py3
 except ImportError:        # py2
     import urllib2 as _urlreq  # type: ignore
 
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 
 HOME = os.path.expanduser("~")
 VB_HOME = os.environ.get("VANBREW_HOME") or os.path.join(HOME, ".vanbrew")
@@ -58,10 +58,17 @@ def _u(path):
 #   bin:   {"name": "<cmd>", "kind": "python|vanta|exec|shell", "main": "<file>"}
 BUILTIN = {
     "vanta": {
-        "version": "4.6",
+        "version": "4.7",
         "summary": "The Vanta plain-English programming language & interpreter",
         "files": [{"source": _u("/packages/vanta/vanta.py"), "as": "vanta.py"}],
         "bin": [{"name": "vanta", "kind": "python", "main": "vanta.py"}],
+    },
+    "cardforge": {
+        "version": "1.0",
+        "summary": "Card Forge - a bulk card maker in Vanta: generate card artwork with FLUX (fal.ai/Replicate), lay out MTG-style or custom cards, export per-card PNGs, a print-and-play PDF, and a Tabletop Simulator deck sheet. Run: cardforge (opens :8120).",
+        "deps": ["vanta"],
+        "files": [{"source": _u("/packages/cardforge/cardforge.va"), "as": "cardforge.va"}],
+        "bin": [{"name": "cardforge", "kind": "vanta", "main": "cardforge.va"}],
     },
     "vcode": {
         "version": "4.2",

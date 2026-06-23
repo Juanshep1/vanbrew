@@ -1,6 +1,6 @@
 {
   "vanta": {
-    "version": "4.6",
+    "version": "4.7",
     "summary": "The Vanta plain-English programming language & interpreter (4.4: HTTP client now decodes gzip/deflate + page charset)",
     "files": [
       {
@@ -217,6 +217,29 @@
         "name": "vfmt",
         "kind": "cc",
         "main": "vfmt.va.c"
+      }
+    ]
+  },
+  "cardforge": {
+    "version": "1.0",
+    "summary": "Card Forge - a bulk card maker in Vanta: generate card artwork with FLUX (fal.ai/Replicate), lay out MTG-style or custom cards, export per-card PNGs, a print-and-play PDF, and a Tabletop Simulator deck sheet. Run: cardforge (opens :8120).",
+    "deps": [
+      "vanta"
+    ],
+    "files": [
+      {
+        "source": {
+          "kind": "url",
+          "url": "https://raw.githubusercontent.com/Juanshep1/vanbrew/main/packages/cardforge/cardforge.va"
+        },
+        "as": "cardforge.va"
+      }
+    ],
+    "bin": [
+      {
+        "name": "cardforge",
+        "kind": "vanta",
+        "main": "cardforge.va"
       }
     ]
   }

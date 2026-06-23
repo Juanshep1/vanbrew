@@ -1,0 +1,988 @@
+# Card Forge — a bulk card maker in Vanta.
+# Generate card artwork with FLUX (fal.ai / Replicate), lay out MTG-style or custom
+# cards, and export per-card PNGs, a print-and-play PDF, and a Tabletop Simulator sheet.
+# Needs Vanta 4.7+ (download / render_html / binary serve / base64_to_bytes).
+
+# ----------------------------------------------------------------- storage ----
+to cf_dir()
+    give back path_join(home_dir(), ".cardforge")
+end
+to art_dir()
+    give back path_join(cf_dir(), "art")
+end
+to decks_dir()
+    give back path_join(cf_dir(), "decks")
+end
+to deck_dir(name)
+    give back path_join(decks_dir(), name)
+end
+
+to ensure_dirs()
+    if not path_exists(cf_dir())
+        make_dir(cf_dir())
+    end
+    if not path_exists(art_dir())
+        make_dir(art_dir())
+    end
+    if not path_exists(decks_dir())
+        make_dir(decks_dir())
+    end
+    if not path_exists(deck_dir(STATE["deck"]))
+        make_dir(deck_dir(STATE["deck"]))
+    end
+end
+
+let STATE be {"provider": "fal", "key": "", "model": "schnell", "deck": "starter", "style": "fantasy trading card art, dramatic cinematic lighting, highly detailed digital painting, no text, no border", "accent": "#caa24a", "custom_bg": "#16121f"}
+
+to state_path()
+    give back path_join(cf_dir(), "state.json")
+end
+
+to load_state()
+    if path_exists(state_path())
+        attempt
+            let s be from_json(read_file(state_path()))
+            for each k in keys(s)
+                change STATE at k to s[k]
+            end
+        rescue e
+            say "could not read state: " + text(e)
+        end
+    end
+end
+
+to save_state()
+    write_file(state_path(), to_json(STATE))
+end
+
+let CARDS be []
+
+to cards_path()
+    give back path_join(deck_dir(STATE["deck"]), "cards.json")
+end
+
+to load_cards()
+    if path_exists(cards_path())
+        attempt
+            change CARDS to from_json(read_file(cards_path()))
+        rescue e
+            change CARDS to []
+        end
+    end
+    if length(CARDS) is 0
+        change CARDS to seed_cards()
+        save_cards()
+    end
+end
+
+to save_cards()
+    ensure_dirs()
+    write_file(cards_path(), to_json(CARDS))
+end
+
+to new_card()
+    give back {"id": text(now_ms()), "name": "New Card", "mana": "2", "type": "Creature", "text": "", "flavor": "", "pt": "2/2", "rarity": "common", "color": "colorless", "art_prompt": "", "art_file": "", "template": "mtg"}
+end
+
+to seed_cards()
+    let a be new_card()
+    change a at "name" to "Emberwing Drake"
+    change a at "mana" to "3R"
+    change a at "type" to "Creature — Dragon"
+    change a at "text" to "Flying. When Emberwing Drake attacks, it deals 1 damage to any target."
+    change a at "flavor" to "Born of the last cinder of a dying star."
+    change a at "pt" to "3/3"
+    change a at "rarity" to "rare"
+    change a at "color" to "red"
+    let b be new_card()
+    change b at "id" to text(now_ms() + 1)
+    change b at "name" to "Tidecaller Sage"
+    change b at "mana" to "1U"
+    change b at "type" to "Creature — Merfolk Wizard"
+    change b at "text" to "When Tidecaller Sage enters, draw a card."
+    change b at "flavor" to "The sea remembers every secret."
+    change b at "pt" to "1/3"
+    change b at "rarity" to "uncommon"
+    change b at "color" to "blue"
+    give back [a, b]
+end
+
+to find_card(id)
+    for each c in CARDS
+        if c["id"] is id
+            give back c
+        end
+    end
+    give back nothing
+end
+
+# ----------------------------------------------------------------- helpers ----
+to qget(q, k, dflt)
+    if k is in q
+        give back q[k]
+    end
+    give back dflt
+end
+
+to esc(s)
+    give back html_escape(text(s))
+end
+
+to parse_form(body)
+    let out be {}
+    if length(body) is 0
+        give back out
+    end
+    for each pair in split(body, "&")
+        if "=" is in pair
+            let kv be split(pair, "=")
+            let k be url_decode(replace(kv[0], "+", " "))
+            let v be url_decode(replace(join(kv[1:length(kv)], "="), "+", " "))
+            change out at k to v
+        end
+    end
+    give back out
+end
+
+# ----------------------------------------------------------------- colors -----
+to color_grad(color)
+    if color is "white"
+        give back "linear-gradient(160deg,#efe9d2,#cdc4a3)"
+    end
+    if color is "blue"
+        give back "linear-gradient(160deg,#1f4f7a,#0c2740)"
+    end
+    if color is "black"
+        give back "linear-gradient(160deg,#2a2730,#0f0d12)"
+    end
+    if color is "red"
+        give back "linear-gradient(160deg,#7a2417,#3a0f0a)"
+    end
+    if color is "green"
+        give back "linear-gradient(160deg,#27562b,#0f2912)"
+    end
+    if color is "multi"
+        give back "linear-gradient(160deg,#caa24a,#7a5a1f)"
+    end
+    give back "linear-gradient(160deg,#3a3640,#17151c)"
+end
+
+to ink(color)
+    if color is "white"
+        give back "#1a1712"
+    end
+    give back "#f4f1e6"
+end
+
+to rarity_color(r)
+    if r is "mythic"
+        give back "#d4642a"
+    end
+    if r is "rare"
+        give back "#caa24a"
+    end
+    if r is "uncommon"
+        give back "#9fb3c8"
+    end
+    give back "#cfcfcf"
+end
+
+# render a mana-cost string like "3R" or "2UU" into colored pips
+to pip_color(sym)
+    if sym is "W"
+        give back "#f4eecb"
+    end
+    if sym is "U"
+        give back "#3b78b0"
+    end
+    if sym is "B"
+        give back "#3a3340"
+    end
+    if sym is "R"
+        give back "#c0432c"
+    end
+    if sym is "G"
+        give back "#3f8a47"
+    end
+    if sym is "C"
+        give back "#c8c2b6"
+    end
+    give back "#d8d2c2"
+end
+
+to mana_pips(cost)
+    let out be ""
+    let i be 0
+    while i is under length(cost)
+        let ch be slice(cost, i, i + 1)
+        if ch is not " "
+            let bg be pip_color(uppercase(ch))
+            change out to out + "<span class='pip' style='background:" + bg + ";color:#1a1712'>" + esc(ch) + "</span>"
+        end
+        change i to i + 1
+    end
+    give back out
+end
+
+# ----------------------------------------------------------------- card art ---
+to art_prompt_for(card)
+    if length(trim(card["art_prompt"])) is over 0
+        give back trim(card["art_prompt"])
+    end
+    give back card["name"] + ", " + card["type"] + ", " + STATE["style"]
+end
+
+to art_hash(card)
+    give back slice(sha256(art_prompt_for(card) + "|" + STATE["provider"] + "|" + STATE["model"]), 0, 24)
+end
+
+to ext_for(ctype)
+    if "jpeg" is in ctype
+        give back "jpg"
+    end
+    if "jpg" is in ctype
+        give back "jpg"
+    end
+    if "webp" is in ctype
+        give back "webp"
+    end
+    give back "png"
+end
+
+# call the image API, download the result, return {ok, file/error}
+to gen_art(card)
+    if length(trim(STATE["key"])) is 0
+        give back {"ok": no, "error": "No API key set — open Settings and paste your fal.ai or Replicate key."}
+    end
+    ensure_dirs()
+    let prompt be art_prompt_for(card)
+    let h be art_hash(card)
+    # cache: reuse a previously generated file for the same prompt
+    for each e in ["png", "jpg", "webp"]
+        let cached be path_join(art_dir(), h + "." + e)
+        if path_exists(cached)
+            give back {"ok": yes, "file": cached, "cached": yes}
+        end
+    end
+    let res be nothing
+    if STATE["provider"] is "replicate"
+        change res to gen_replicate(prompt)
+    otherwise
+        change res to gen_fal(prompt)
+    end
+    if not res["ok"]
+        give back res
+    end
+    let ext be ext_for(res["type"])
+    let dest be path_join(art_dir(), h + "." + ext)
+    let dl be download(res["url"], dest)
+    if not dl["ok"]
+        give back {"ok": no, "error": "download failed: " + dl["error"]}
+    end
+    give back {"ok": yes, "file": dest, "cached": no}
+end
+
+to gen_fal(prompt)
+    let url be "https://fal.run/fal-ai/flux/" + STATE["model"]
+    let body be {"prompt": prompt, "image_size": "landscape_4_3", "num_images": 1}
+    let hdrs be {"Authorization": "Key " + STATE["key"], "Content-Type": "application/json"}
+    let r be http_post(url, body, hdrs)
+    if r["status"] is not 200
+        give back {"ok": no, "error": "fal " + text(r["status"]) + ": " + slice(r["body"], 0, 220)}
+    end
+    let j be from_json(r["body"])
+    if "images" is in j
+        if length(j["images"]) is over 0
+            let img be j["images"][0]
+            let ct be "image/jpeg"
+            if "content_type" is in img
+                change ct to img["content_type"]
+            end
+            give back {"ok": yes, "url": img["url"], "type": ct}
+        end
+    end
+    give back {"ok": no, "error": "fal: no image in response"}
+end
+
+to gen_replicate(prompt)
+    let url be "https://api.replicate.com/v1/models/" + STATE["model"] + "/predictions"
+    let body be {"input": {"prompt": prompt}}
+    let hdrs be {"Authorization": "Bearer " + STATE["key"], "Content-Type": "application/json", "Prefer": "wait"}
+    let r be http_post(url, body, hdrs)
+    if r["status"] is over 299
+        give back {"ok": no, "error": "replicate " + text(r["status"]) + ": " + slice(r["body"], 0, 220)}
+    end
+    let j be from_json(r["body"])
+    if "output" is in j
+        let out be j["output"]
+        let u be out
+        if typeof(out) is "list"
+            if length(out) is over 0
+                change u to out[0]
+            end
+        end
+        give back {"ok": yes, "url": u, "type": "image/png"}
+    end
+    give back {"ok": no, "error": "replicate: no output (try Prefer:wait model)"}
+end
+
+# ----------------------------------------------------------------- template ---
+# art_src: how the <img> should reference the art (a /img URL for preview, or
+# file:// for headless-chrome rasterization). Returns full standalone 750x1050 HTML.
+to card_doc(card, art_src)
+    if card["template"] is "custom"
+        give back custom_doc(card, art_src)
+    end
+    give back mtg_doc(card, art_src)
+end
+
+to art_block(art_src)
+    if length(art_src) is over 0
+        give back "<img class='art' src='" + art_src + "'>"
+    end
+    give back "<div class='art noart'>art appears here</div>"
+end
+
+to mtg_doc(card, art_src)
+    let grad be color_grad(card["color"])
+    let txtink be ink(card["color"])
+    let rc be rarity_color(card["rarity"])
+    let head be """<!doctype html><html><head><meta charset='utf-8'><style>
+html,body { margin:0; padding:0 }
+* { box-sizing:border-box; font-family:'Georgia','Times New Roman',serif }
+.card { width:750px; height:1050px; padding:30px; border-radius:38px;
+        background:#0a0a0c; position:relative; overflow:hidden }
+.inner { width:100%; height:100%; border-radius:24px; padding:18px;
+         display:flex; flex-direction:column; box-shadow:inset 0 0 0 3px rgba(0,0,0,.4) }
+.titlebar { display:flex; align-items:center; justify-content:space-between;
+            background:rgba(0,0,0,.18); border-radius:14px; padding:10px 16px; gap:10px }
+.name { font-size:38px; font-weight:700; letter-spacing:.3px }
+.mana { display:flex; gap:6px }
+.pip { width:34px; height:34px; border-radius:50%; display:flex; align-items:center;
+       justify-content:center; font-weight:700; font-size:22px; box-shadow:inset 0 -3px 6px rgba(0,0,0,.35), 0 1px 2px rgba(0,0,0,.4) }
+.art { width:100%; height:430px; object-fit:cover; border-radius:10px; margin-top:14px;
+       box-shadow:0 0 0 3px rgba(0,0,0,.45) }
+.noart { display:flex; align-items:center; justify-content:center; background:repeating-linear-gradient(45deg,#1b1b1f,#1b1b1f 14px,#222 14px,#222 28px); color:#888; font-style:italic }
+.typeline { margin-top:12px; background:rgba(0,0,0,.18); border-radius:12px;
+            padding:9px 16px; font-size:25px; font-weight:600 }
+.textbox { margin-top:12px; flex:1; background:rgba(244,241,230,.92); color:#16140f;
+           border-radius:12px; padding:18px 20px; font-size:25px; line-height:1.32; overflow:hidden }
+.rules { white-space:pre-wrap }
+.flavor { margin-top:12px; font-style:italic; opacity:.85; font-size:22px; border-top:1px solid rgba(0,0,0,.18); padding-top:10px }
+.footer { display:flex; align-items:center; justify-content:space-between; margin-top:12px; font-size:20px; opacity:.92 }
+.rarity { width:18px; height:18px; border-radius:50%; display:inline-block; margin-right:8px; vertical-align:-2px }
+.pt { background:rgba(0,0,0,.28); border-radius:12px; padding:8px 20px; font-size:34px; font-weight:800 }
+</style></head><body>"""
+    let card_open be "<div class='card' style='background:" + grad + ";color:" + txtink + "'><div class='inner'>"
+    let title be "<div class='titlebar'><div class='name'>" + esc(card["name"]) + "</div><div class='mana'>" + mana_pips(card["mana"]) + "</div></div>"
+    let art be art_block(art_src)
+    let typeline be "<div class='typeline'>" + esc(card["type"]) + "</div>"
+    let flavor be ""
+    if length(trim(card["flavor"])) is over 0
+        change flavor to "<div class='flavor'>" + esc(card["flavor"]) + "</div>"
+    end
+    let textbox be "<div class='textbox'><div class='rules'>" + esc(card["text"]) + "</div>" + flavor + "</div>"
+    let ptbox be ""
+    if length(trim(card["pt"])) is over 0
+        change ptbox to "<div class='pt'>" + esc(card["pt"]) + "</div>"
+    otherwise
+        change ptbox to "<div></div>"
+    end
+    let footer be "<div class='footer'><div><span class='rarity' style='background:" + rc + "'></span>" + esc(uppercase(slice(card["rarity"], 0, 1)) + slice(card["rarity"], 1, length(card["rarity"]))) + "</div>" + ptbox + "</div>"
+    let tail be "</div></div></body></html>"
+    give back head + card_open + title + art + typeline + textbox + footer + tail
+end
+
+to custom_doc(card, art_src)
+    let accent be STATE["accent"]
+    let bg be STATE["custom_bg"]
+    let head be """<!doctype html><html><head><meta charset='utf-8'><style>
+html,body { margin:0 } * { box-sizing:border-box; font-family:'Inter','Helvetica Neue',system-ui,sans-serif }
+.card { width:750px; height:1050px; padding:0; position:relative; overflow:hidden; color:#f2f0ea }
+.bar { height:96px; display:flex; align-items:center; justify-content:space-between; padding:0 30px }
+.name { font-size:42px; font-weight:800; letter-spacing:.4px }
+.cost { font-size:34px; font-weight:800; background:rgba(0,0,0,.3); border-radius:14px; padding:6px 18px }
+.art { width:100%; height:520px; object-fit:cover; display:block }
+.noart { width:100%; height:520px; display:flex; align-items:center; justify-content:center; background:#0c0c10; color:#777; font-style:italic }
+.body { padding:26px 30px }
+.type { font-size:26px; opacity:.85; margin-bottom:14px; text-transform:uppercase; letter-spacing:2px }
+.text { font-size:28px; line-height:1.34; white-space:pre-wrap }
+.flavor { font-style:italic; opacity:.7; margin-top:16px; font-size:24px }
+.stat { position:absolute; bottom:26px; right:30px; font-size:46px; font-weight:900; background:rgba(0,0,0,.4); border-radius:18px; padding:6px 22px }
+</style></head><body>"""
+    let card_open be "<div class='card' style='background:" + bg + "'>"
+    let bar be "<div class='bar' style='background:" + accent + "'><div class='name'>" + esc(card["name"]) + "</div><div class='cost'>" + esc(card["mana"]) + "</div></div>"
+    let art be "<div class='noart'>art appears here</div>"
+    if length(art_src) is over 0
+        change art to "<img class='art' src='" + art_src + "'>"
+    end
+    let body be "<div class='body'><div class='type'>" + esc(card["type"]) + "</div><div class='text'>" + esc(card["text"]) + "</div>"
+    if length(trim(card["flavor"])) is over 0
+        change body to body + "<div class='flavor'>" + esc(card["flavor"]) + "</div>"
+    end
+    change body to body + "</div>"
+    let stat be ""
+    if length(trim(card["pt"])) is over 0
+        change stat to "<div class='stat'>" + esc(card["pt"]) + "</div>"
+    end
+    give back head + card_open + bar + art + body + stat + "</div></body></html>"
+end
+
+# the <img> src used in the live browser preview (served by /img)
+to preview_src(card)
+    if length(card["art_file"]) is over 0
+        if path_exists(card["art_file"])
+            give back "/img?path=" + url_encode(card["art_file"])
+        end
+    end
+    give back ""
+end
+
+# the <img> src used when rasterizing with headless chrome (direct file access)
+to raster_src(card)
+    if length(card["art_file"]) is over 0
+        if path_exists(card["art_file"])
+            give back "file://" + card["art_file"]
+        end
+    end
+    give back ""
+end
+
+# ----------------------------------------------------------------- render -----
+to render_one(card)
+    ensure_dirs()
+    let html be card_doc(card, raster_src(card))
+    let hpath be path_join(deck_dir(STATE["deck"]), card["id"] + ".html")
+    write_file(hpath, html)
+    let png be path_join(deck_dir(STATE["deck"]), card["id"] + ".png")
+    let r be render_html(hpath, png, 750, 1050, "png")
+    give back r
+end
+
+to render_all()
+    let ok be 0
+    for each c in CARDS
+        let r be render_one(c)
+        if r["ok"]
+            change ok to ok + 1
+        end
+    end
+    give back ok
+end
+
+to rendered_png(card)
+    give back path_join(deck_dir(STATE["deck"]), card["id"] + ".png")
+end
+
+# print-and-play PDF: 3x3 poker-size cards per US Letter page
+to export_pdf()
+    let cells be ""
+    for each c in CARDS
+        let p be rendered_png(c)
+        if path_exists(p)
+            change cells to cells + "<div class='cell'><img src='file://" + p + "'></div>"
+        end
+    end
+    let doc be """<!doctype html><html><head><meta charset='utf-8'><style>
+@page { size: letter; margin: 0.35in }
+html,body { margin:0 }
+.grid { display:grid; grid-template-columns: repeat(3, 2.5in); grid-auto-rows: 3.5in; gap:0 }
+.cell { width:2.5in; height:3.5in; outline:1px dashed #bbb; overflow:hidden }
+.cell img { width:2.5in; height:3.5in; display:block }
+</style></head><body><div class='grid'>""" + cells + "</div></body></html>"
+    ensure_dirs()
+    let hpath be path_join(deck_dir(STATE["deck"]), "_print.html")
+    write_file(hpath, doc)
+    let out be path_join(deck_dir(STATE["deck"]), "print.pdf")
+    let r be render_html(hpath, out, 1000, 1000, "pdf")
+    give back out
+end
+
+# Tabletop Simulator deck sheet: a 10-column grid of card faces, one PNG
+to export_tts()
+    let n be length(CARDS)
+    let cols be 10
+    let rows be 1
+    if n is over 0
+        change rows to ceil(n / cols)
+    end
+    let cw be 400
+    let chh be 560
+    let cells be ""
+    for each c in CARDS
+        let p be rendered_png(c)
+        if path_exists(p)
+            change cells to cells + "<img src='file://" + p + "'>"
+        end
+    end
+    let doc be "<!doctype html><html><head><meta charset='utf-8'><style>"
+    change doc to doc + "html,body{{margin:0;background:#000}}"
+    change doc to doc + ".grid{{display:grid;grid-template-columns:repeat(10," + text(cw) + "px);grid-auto-rows:" + text(chh) + "px}}"
+    change doc to doc + ".grid img{{width:" + text(cw) + "px;height:" + text(chh) + "px;display:block}}"
+    change doc to doc + "</style></head><body><div class='grid'>" + cells + "</div></body></html>"
+    ensure_dirs()
+    let hpath be path_join(deck_dir(STATE["deck"]), "_tts.html")
+    write_file(hpath, doc)
+    let out be path_join(deck_dir(STATE["deck"]), "tts.png")
+    let w be cols * cw
+    let h be rows * chh
+    let r be render_html(hpath, out, w, h, "png")
+    give back out
+end
+
+# ----------------------------------------------------------------- web UI -----
+to styles()
+    give back """*{box-sizing:border-box}
+body{margin:0;background:#0b0c12;color:#e9e7df;font-family:'Inter',system-ui,Arial,sans-serif}
+a{color:#caa24a;text-decoration:none}
+nav{display:flex;align-items:center;gap:18px;padding:14px 26px;background:#11121b;border-bottom:1px solid #232539;position:sticky;top:0;z-index:5}
+nav .brand{font-weight:800;font-size:20px;color:#fff;letter-spacing:.5px}
+nav a{color:#b9b6ad;font-weight:600}
+nav a:hover{color:#fff}
+.wrap{max-width:1180px;margin:0 auto;padding:26px}
+.row{display:flex;gap:26px;align-items:flex-start}
+.col{flex:1;min-width:0}
+.panel{background:#13141e;border:1px solid #242639;border-radius:16px;padding:20px}
+h2{margin:0 0 16px;font-size:19px}
+label{display:block;font-size:13px;color:#9b98a6;margin:12px 0 5px;letter-spacing:.3px}
+input,select,textarea{width:100%;background:#0c0d15;border:1px solid #2a2c42;border-radius:10px;color:#eee;padding:11px 13px;font-size:15px;font-family:inherit}
+textarea{resize:vertical}
+.btn{display:inline-block;background:#caa24a;color:#1a1407;font-weight:700;border:0;border-radius:10px;padding:12px 18px;font-size:15px;cursor:pointer}
+.btn.alt{background:#262842;color:#e9e7df}
+.btn.ghost{background:transparent;border:1px solid #2a2c42;color:#cfcdc4}
+.btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.preview{display:flex;justify-content:center}
+.preview iframe{width:375px;height:525px;border:0;border-radius:19px;box-shadow:0 20px 60px rgba(0,0,0,.5);background:#000}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.note{color:#8b889a;font-size:13px;margin-top:8px}
+.flash{background:#1c2a1c;border:1px solid #2f5a2f;color:#bfe6bf;border-radius:10px;padding:12px 14px;margin-bottom:16px}
+.flash.err{background:#2a1c1c;border-color:#5a2f2f;color:#e6bfbf}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #232539}
+th{color:#9b98a6;font-weight:600}
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-top:16px}
+.gallery img{width:100%;border-radius:12px;border:1px solid #242639;background:#000}
+.tag{display:inline-block;background:#1c1e30;border-radius:999px;padding:3px 10px;font-size:12px;color:#b9b6ad}
+"""
+end
+
+to nav()
+    let n be "<nav><span class='brand'>⚒ Card Forge</span>"
+    change n to n + "<a href='/'>Editor</a><a href='/bulk'>Bulk</a><a href='/settings'>Settings</a>"
+    change n to n + "<span style='flex:1'></span><span class='tag'>deck: " + esc(STATE["deck"]) + "</span>"
+    change n to n + "<span class='tag'>" + esc(STATE["provider"]) + "</span></nav>"
+    give back n
+end
+
+to page(title, body)
+    let h be "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+    change h to h + "<title>" + esc(title) + " · Card Forge</title><style>" + styles() + "</style></head><body>"
+    change h to h + nav() + "<div class='wrap'>" + body + "</div></body></html>"
+    give back h
+end
+
+to flash(msg, kind)
+    if length(msg) is 0
+        give back ""
+    end
+    give back "<div class='flash " + kind + "'>" + esc(msg) + "</div>"
+end
+
+# ---- editor ----
+to opt(value, current, label)
+    let sel be ""
+    if value is current
+        change sel to " selected"
+    end
+    give back "<option value='" + value + "'" + sel + ">" + label + "</option>"
+end
+
+to editor_body(card, msg, kind)
+    let f be flash(msg, kind)
+    let form be "<form method='post' action='/save'>"
+    change form to form + "<input type='hidden' name='id' value='" + esc(card["id"]) + "'>"
+    change form to form + "<div class='grid2'>"
+    change form to form + "<div><label>Name</label><input name='name' value='" + esc(card["name"]) + "'></div>"
+    change form to form + "<div><label>Mana / Cost</label><input name='mana' value='" + esc(card["mana"]) + "'></div></div>"
+    change form to form + "<label>Type line</label><input name='type' value='" + esc(card["type"]) + "'>"
+    change form to form + "<label>Rules text</label><textarea name='text' rows='4'>" + esc(card["text"]) + "</textarea>"
+    change form to form + "<label>Flavor text</label><textarea name='flavor' rows='2'>" + esc(card["flavor"]) + "</textarea>"
+    change form to form + "<div class='grid2'>"
+    change form to form + "<div><label>Power/Toughness</label><input name='pt' value='" + esc(card["pt"]) + "'></div>"
+    change form to form + "<div><label>Rarity</label><select name='rarity'>" + opt("common", card["rarity"], "Common") + opt("uncommon", card["rarity"], "Uncommon") + opt("rare", card["rarity"], "Rare") + opt("mythic", card["rarity"], "Mythic") + "</select></div></div>"
+    change form to form + "<div class='grid2'>"
+    change form to form + "<div><label>Color</label><select name='color'>" + opt("white", card["color"], "White") + opt("blue", card["color"], "Blue") + opt("black", card["color"], "Black") + opt("red", card["color"], "Red") + opt("green", card["color"], "Green") + opt("multi", card["color"], "Multicolor") + opt("colorless", card["color"], "Colorless") + "</select></div>"
+    change form to form + "<div><label>Template</label><select name='template'>" + opt("mtg", card["template"], "MTG-style") + opt("custom", card["template"], "Custom") + "</select></div></div>"
+    change form to form + "<label>Art prompt (blank = auto from name + type + deck style)</label><textarea name='art_prompt' rows='2'>" + esc(card["art_prompt"]) + "</textarea>"
+    change form to form + "<div class='btns'><button class='btn' type='submit'>Save & preview</button>"
+    change form to form + "<button class='btn alt' type='submit' formaction='/genart'>✨ Generate art</button>"
+    change form to form + "<a class='btn ghost' href='/new'>+ New card</a></div></form>"
+
+    let left be "<div class='panel'><h2>Card editor</h2>" + f + form + "</div>"
+    let right be "<div class='panel'><h2>Live preview</h2><div class='preview'><iframe src='/card?id=" + url_encode(card["id"]) + "&t=" + text(now_ms()) + "'></iframe></div>"
+    change right to right + "<div class='note'>Cards render at 750×1050 (poker size @ 300 DPI).</div></div>"
+    give back "<div class='row'><div class='col'>" + left + "</div><div class='col'>" + right + "</div></div>"
+end
+
+# ---- bulk ----
+to parse_csv(textin)
+    let rows be []
+    let lines be split(textin, "\n")
+    if length(lines) is under 2
+        give back rows
+    end
+    let header be []
+    for each h in split(lines[0], ",")
+        add lowercase(trim(h)) to header
+    end
+    let i be 1
+    while i is under length(lines)
+        let line be trim(lines[i])
+        if length(line) is over 0
+            let vals be split(line, ",")
+            let c be new_card()
+            change c at "id" to text(now_ms() + i)
+            let j be 0
+            while j is under length(header)
+                if j is under length(vals)
+                    let col be header[j]
+                    let v be trim(vals[j])
+                    if col is "name"
+                        change c at "name" to v
+                    end
+                    if col is "mana"
+                        change c at "mana" to v
+                    end
+                    if col is "cost"
+                        change c at "mana" to v
+                    end
+                    if col is "type"
+                        change c at "type" to v
+                    end
+                    if col is "text"
+                        change c at "text" to v
+                    end
+                    if col is "flavor"
+                        change c at "flavor" to v
+                    end
+                    if col is "pt"
+                        change c at "pt" to v
+                    end
+                    if col is "rarity"
+                        change c at "rarity" to lowercase(v)
+                    end
+                    if col is "color"
+                        change c at "color" to lowercase(v)
+                    end
+                    if col is "art_prompt"
+                        change c at "art_prompt" to v
+                    end
+                    if col is "template"
+                        change c at "template" to lowercase(v)
+                    end
+                end
+                change j to j + 1
+            end
+            add c to rows
+        end
+        change i to i + 1
+    end
+    give back rows
+end
+
+to bulk_body(msg, kind)
+    let f be flash(msg, kind)
+    let sample be "name,mana,type,text,rarity,color,pt\nStormcaller,2U,Creature — Wizard,Draw a card.,rare,blue,2/2\nGoblin Raider,R,Creature — Goblin,Haste,common,red,2/1"
+    let imp be "<div class='panel'><h2>Import a deck (CSV)</h2><form method='post' action='/import'>"
+    change imp to imp + "<label>Paste CSV — first row is column names (name, mana, type, text, flavor, pt, rarity, color, art_prompt, template)</label>"
+    change imp to imp + "<textarea name='csv' rows='7' placeholder='" + esc(sample) + "'></textarea>"
+    change imp to imp + "<div class='btns'><button class='btn' type='submit'>Import (replace deck)</button>"
+    change imp to imp + "<button class='btn alt' type='submit' formaction='/import' name='mode' value='append'>Append</button></div></form></div>"
+
+    let table be "<div class='panel'><h2>Deck — " + text(length(CARDS)) + " cards</h2><table><tr><th>Name</th><th>Cost</th><th>Type</th><th>Rarity</th><th>Art</th><th></th></tr>"
+    for each c in CARDS
+        let hasart be "—"
+        if length(c["art_file"]) is over 0
+            change hasart to "✓"
+        end
+        change table to table + "<tr><td>" + esc(c["name"]) + "</td><td>" + esc(c["mana"]) + "</td><td>" + esc(c["type"]) + "</td><td>" + esc(c["rarity"]) + "</td><td>" + hasart + "</td><td><a href='/?id=" + url_encode(c["id"]) + "'>edit</a></td></tr>"
+    end
+    change table to table + "</table>"
+    change table to table + "<div class='btns'><form method='post' action='/genall'><button class='btn' type='submit'>✨ Generate all art</button></form>"
+    change table to table + "<form method='post' action='/renderall'><button class='btn alt' type='submit'>🖼 Render all</button></form>"
+    change table to table + "<a class='btn ghost' href='/export/pdf'>⬇ Print-and-play PDF</a>"
+    change table to table + "<a class='btn ghost' href='/export/tts'>⬇ TTS deck sheet</a></div>"
+    change table to table + "<div class='note'>Generating art and rendering call the network / headless Chrome and run one card at a time — a big deck can take a minute.</div></div>"
+
+    # gallery of rendered cards
+    let gal be ""
+    let any be no
+    for each c in CARDS
+        let p be rendered_png(c)
+        if path_exists(p)
+            change any to yes
+            change gal to gal + "<img src='/img?path=" + url_encode(p) + "&t=" + text(now_ms()) + "' title='" + esc(c["name"]) + "'>"
+        end
+    end
+    let galpanel be ""
+    if any
+        change galpanel to "<div class='panel' style='margin-top:20px'><h2>Rendered cards</h2><div class='gallery'>" + gal + "</div></div>"
+    end
+
+    give back f + imp + "<div style='height:20px'></div>" + table + galpanel
+end
+
+# ---- settings ----
+to settings_body(msg, kind)
+    let f be flash(msg, kind)
+    let model_hint be "fal: schnell · dev · pro    —    replicate: black-forest-labs/flux-schnell"
+    let s be "<div class='panel' style='max-width:640px'><h2>Settings</h2>" + f + "<form method='post' action='/settings'>"
+    change s to s + "<label>Art provider</label><select name='provider'>" + opt("fal", STATE["provider"], "fal.ai (FLUX)") + opt("replicate", STATE["provider"], "Replicate (FLUX)") + "</select>"
+    change s to s + "<label>API key</label><input name='key' type='password' placeholder='paste your image-API key' value=''>"
+    change s to s + "<div class='note'>Stored locally in ~/.cardforge/state.json. Leave blank to keep the current key.</div>"
+    change s to s + "<label>Model</label><input name='model' value='" + esc(STATE["model"]) + "'><div class='note'>" + model_hint + "</div>"
+    change s to s + "<label>Deck-wide art style (added to every auto prompt)</label><textarea name='style' rows='3'>" + esc(STATE["style"]) + "</textarea>"
+    change s to s + "<div class='grid2'><div><label>Deck name</label><input name='deck' value='" + esc(STATE["deck"]) + "'></div>"
+    change s to s + "<div><label>Custom template accent</label><input name='accent' value='" + esc(STATE["accent"]) + "'></div></div>"
+    change s to s + "<div class='btns'><button class='btn' type='submit'>Save settings</button>"
+    change s to s + "<button class='btn alt' type='submit' formaction='/test'>Test art generation</button></div></form></div>"
+    give back s
+end
+
+# ----------------------------------------------------------------- routes -----
+let CURRENT be ""
+
+to current_card()
+    if length(CURRENT) is over 0
+        let c be find_card(CURRENT)
+        if c is not nothing
+            give back c
+        end
+    end
+    if length(CARDS) is over 0
+        give back CARDS[0]
+    end
+    give back new_card()
+end
+
+to apply_form(card, fields)
+    for each k in ["name", "mana", "type", "text", "flavor", "pt", "rarity", "color", "art_prompt", "template"]
+        if k is in fields
+            change card at k to fields[k]
+        end
+    end
+end
+
+to handle(req)
+    let path be req["path"]
+    let q be req["query"]
+    let method be req["method"]
+    let form be {}
+    if method is "POST"
+        change form to parse_form(req["body"])
+    end
+
+    # serve an image file (only from inside ~/.cardforge)
+    if path is "/img"
+        let p be qget(q, "path", "")
+        if starts_with(p, cf_dir())
+            if path_exists(p)
+                give back {"status": 200, "file": p}
+            end
+        end
+        give back {"status": 404, "body": "not found", "type": "text/plain"}
+    end
+
+    # standalone single-card document (used by the preview iframe)
+    if path is "/card"
+        let c be find_card(qget(q, "id", ""))
+        if c is nothing
+            change c to current_card()
+        end
+        give back {"status": 200, "body": card_doc(c, preview_src(c)), "type": "text/html; charset=utf-8"}
+    end
+
+    # editor
+    if path is "/"
+        if "id" is in q
+            change CURRENT to q["id"]
+        end
+        give back {"status": 200, "body": page("Editor", editor_body(current_card(), "", "ok")), "type": "text/html; charset=utf-8"}
+    end
+
+    if path is "/new"
+        let c be new_card()
+        add c to CARDS
+        change CURRENT to c["id"]
+        save_cards()
+        give back redirect("/")
+    end
+
+    if path is "/save"
+        let id be qget(form, "id", "")
+        let c be find_card(id)
+        if c is nothing
+            change c to new_card()
+            change c at "id" to id
+            add c to CARDS
+        end
+        apply_form(c, form)
+        change CURRENT to c["id"]
+        save_cards()
+        give back {"status": 200, "body": page("Editor", editor_body(c, "Saved.", "ok")), "type": "text/html; charset=utf-8"}
+    end
+
+    if path is "/genart"
+        let id be qget(form, "id", "")
+        let c be find_card(id)
+        if c is nothing
+            change c to new_card()
+            change c at "id" to id
+            add c to CARDS
+        end
+        apply_form(c, form)
+        change CURRENT to c["id"]
+        let r be gen_art(c)
+        let msg be "Art generated."
+        let kind be "ok"
+        if r["ok"]
+            change c at "art_file" to r["file"]
+        otherwise
+            change msg to r["error"]
+            change kind to "err"
+        end
+        save_cards()
+        give back {"status": 200, "body": page("Editor", editor_body(c, msg, kind)), "type": "text/html; charset=utf-8"}
+    end
+
+    # bulk
+    if path is "/bulk"
+        give back {"status": 200, "body": page("Bulk", bulk_body("", "ok")), "type": "text/html; charset=utf-8"}
+    end
+
+    if path is "/import"
+        let parsed be parse_csv(qget(form, "csv", ""))
+        if length(parsed) is 0
+            give back {"status": 200, "body": page("Bulk", bulk_body("No rows parsed — check the header row.", "err")), "type": "text/html; charset=utf-8"}
+        end
+        if qget(form, "mode", "replace") is "append"
+            for each c in parsed
+                add c to CARDS
+            end
+        otherwise
+            change CARDS to parsed
+        end
+        save_cards()
+        give back {"status": 200, "body": page("Bulk", bulk_body("Imported " + text(length(parsed)) + " cards.", "ok")), "type": "text/html; charset=utf-8"}
+    end
+
+    if path is "/genall"
+        let ok be 0
+        let fail be 0
+        for each c in CARDS
+            let r be gen_art(c)
+            if r["ok"]
+                change c at "art_file" to r["file"]
+                change ok to ok + 1
+            otherwise
+                change fail to fail + 1
+            end
+        end
+        save_cards()
+        let m be "Generated art for " + text(ok) + " cards."
+        if fail is over 0
+            change m to m + " " + text(fail) + " failed (check your key/credits in Settings)."
+        end
+        give back {"status": 200, "body": page("Bulk", bulk_body(m, "ok")), "type": "text/html; charset=utf-8"}
+    end
+
+    if path is "/renderall"
+        let n be render_all()
+        give back {"status": 200, "body": page("Bulk", bulk_body("Rendered " + text(n) + " of " + text(length(CARDS)) + " cards.", "ok")), "type": "text/html; charset=utf-8"}
+    end
+
+    if path is "/export/pdf"
+        render_all()
+        let out be export_pdf()
+        if path_exists(out)
+            give back {"status": 200, "file": out, "type": "application/pdf", "download": yes}
+        end
+        give back {"status": 200, "body": page("Bulk", bulk_body("Could not build the PDF (is Chrome installed?).", "err")), "type": "text/html; charset=utf-8"}
+    end
+
+    if path is "/export/tts"
+        render_all()
+        let out be export_tts()
+        if path_exists(out)
+            give back {"status": 200, "file": out, "type": "image/png", "download": yes}
+        end
+        give back {"status": 200, "body": page("Bulk", bulk_body("Could not build the TTS sheet.", "err")), "type": "text/html; charset=utf-8"}
+    end
+
+    # settings
+    if path is "/settings"
+        if method is "POST"
+            for each k in ["provider", "model", "style", "deck", "accent"]
+                if k is in form
+                    change STATE at k to form[k]
+                end
+            end
+            if "key" is in form
+                if length(trim(form["key"])) is over 0
+                    change STATE at "key" to trim(form["key"])
+                end
+            end
+            ensure_dirs()
+            load_cards()
+            save_state()
+            give back {"status": 200, "body": page("Settings", settings_body("Saved.", "ok")), "type": "text/html; charset=utf-8"}
+        end
+        give back {"status": 200, "body": page("Settings", settings_body("", "ok")), "type": "text/html; charset=utf-8"}
+    end
+
+    if path is "/test"
+        if method is "POST"
+            for each k in ["provider", "model", "style"]
+                if k is in form
+                    change STATE at k to form[k]
+                end
+            end
+            if "key" is in form
+                if length(trim(form["key"])) is over 0
+                    change STATE at "key" to trim(form["key"])
+                end
+            end
+            save_state()
+        end
+        let probe be new_card()
+        change probe at "name" to "Test Knight"
+        change probe at "type" to "Creature — Knight"
+        change probe at "art_prompt" to ""
+        let r be gen_art(probe)
+        if r["ok"]
+            give back {"status": 200, "body": page("Settings", settings_body("✓ Art generation works — sample saved to " + r["file"], "ok")), "type": "text/html; charset=utf-8"}
+        end
+        give back {"status": 200, "body": page("Settings", settings_body("✗ " + r["error"], "err")), "type": "text/html; charset=utf-8"}
+    end
+
+    give back {"status": 404, "body": page("Lost", "<div class='panel'><h2>Not found</h2><a href='/'>Back to the editor</a></div>"), "type": "text/html; charset=utf-8"}
+end
+
+to redirect(loc)
+    give back {"status": 303, "body": "", "headers": {"Location": loc}}
+end
+
+# ----------------------------------------------------------------- boot --------
+load_state()
+ensure_dirs()
+load_cards()
+say "Card Forge — open http://localhost:8120"
+# auto-open in a Chrome app-window once the server is up (set CARDFORGE_NOOPEN=1 to skip)
+if length(env("CARDFORGE_NOOPEN")) is 0
+    attempt
+        run("(sleep 1.3 && (open -na 'Google Chrome' --args --app=http://localhost:8120 --window-size=1320,900 >/dev/null 2>&1 || open http://localhost:8120 >/dev/null 2>&1 || xdg-open http://localhost:8120 >/dev/null 2>&1)) &")
+    rescue e
+        say "open http://localhost:8120 in your browser"
+    end
+end
+serve(8120, handle)
