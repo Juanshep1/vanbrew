@@ -58,7 +58,7 @@ def _u(path):
 #   bin:   {"name": "<cmd>", "kind": "python|vanta|exec|shell", "main": "<file>"}
 BUILTIN = {
     "vanta": {
-        "version": "4.8",
+        "version": "4.9",
         "summary": "The Vanta plain-English programming language & interpreter",
         "files": [{"source": _u("/packages/vanta/vanta.py"), "as": "vanta.py"}],
         "bin": [{"name": "vanta", "kind": "python", "main": "vanta.py"}],

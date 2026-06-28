@@ -35,7 +35,7 @@ import ctypes
 import struct as _struct
 import threading as _threading
 
-VERSION = "4.8"
+VERSION = "4.9"
 
 # Command-line arguments passed to a Vanta program (after the script name).
 PROGRAM_ARGS = []
@@ -3141,6 +3141,285 @@ def b_my_pid(args):
     return os.getpid()
 
 
+# ===========================================================================
+# INPUT TOOLKIT — press keys, type, move/click the mouse, read whether a key is
+# held, and register GLOBAL HOTKEYS (so a trainer can toggle a cheat with F1).
+# macOS (CoreGraphics), Windows (user32), Linux (xdotool). On macOS this needs
+# Accessibility / Input-Monitoring permission for your terminal the first time.
+# ===========================================================================
+_HOTKEYS = {}
+_HOTKEY_ID = [0]
+_CG = [None]
+
+_MAC_KEYS = {
+    "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9,
+    "b": 11, "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17, "1": 18, "2": 19,
+    "3": 20, "4": 21, "6": 22, "5": 23, "=": 24, "9": 25, "7": 26, "-": 27, "8": 28,
+    "0": 29, "]": 30, "o": 31, "u": 32, "[": 33, "i": 34, "p": 35, "l": 37, "j": 38,
+    "'": 39, "k": 40, ";": 41, "\\": 42, ",": 43, "/": 44, "n": 45, "m": 46, ".": 47,
+    "`": 50, "return": 36, "enter": 36, "tab": 48, "space": 49, "delete": 51,
+    "backspace": 51, "escape": 53, "esc": 53, "cmd": 55, "command": 55, "shift": 56,
+    "capslock": 57, "option": 58, "alt": 58, "control": 59, "ctrl": 59,
+    "f1": 122, "f2": 120, "f3": 99, "f4": 118, "f5": 96, "f6": 97, "f7": 98, "f8": 100,
+    "f9": 101, "f10": 109, "f11": 103, "f12": 111,
+    "left": 123, "right": 124, "down": 125, "up": 126,
+}
+
+_WIN_KEYS = {
+    "space": 0x20, "enter": 0x0D, "return": 0x0D, "tab": 0x09, "escape": 0x1B,
+    "esc": 0x1B, "backspace": 0x08, "delete": 0x2E, "shift": 0x10, "ctrl": 0x11,
+    "control": 0x11, "alt": 0x12, "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28,
+}
+for _i in range(1, 13):
+    _WIN_KEYS["f%d" % _i] = 0x70 + (_i - 1)
+for _ch in "abcdefghijklmnopqrstuvwxyz":
+    _WIN_KEYS[_ch] = ord(_ch.upper())
+for _ch in "0123456789":
+    _WIN_KEYS[_ch] = ord(_ch)
+
+
+def _mac_cg():
+    if _CG[0] is None:
+        cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+
+        class CGPoint(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
+        cg.CGEventCreateKeyboardEvent.restype = ctypes.c_void_p
+        cg.CGEventCreateKeyboardEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_bool]
+        cg.CGEventKeyboardSetUnicodeString.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_uint16)]
+        cg.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+        cg.CGEventSourceKeyState.restype = ctypes.c_bool
+        cg.CGEventSourceKeyState.argtypes = [ctypes.c_int32, ctypes.c_uint16]
+        cg.CGEventCreateMouseEvent.restype = ctypes.c_void_p
+        cg.CGEventCreateMouseEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint32, CGPoint, ctypes.c_uint32]
+        cg.CGWarpMouseCursorPosition.argtypes = [CGPoint]
+        cg.CGEventCreate.restype = ctypes.c_void_p
+        cg.CGEventCreate.argtypes = [ctypes.c_void_p]
+        cg.CGEventGetLocation.restype = CGPoint
+        cg.CGEventGetLocation.argtypes = [ctypes.c_void_p]
+        _CG[0] = (cg, CGPoint, ctypes.CDLL(None))
+    return _CG[0]
+
+
+def _keycode(name):
+    nm = display(name).lower()
+    if sys.platform == "darwin":
+        if nm not in _MAC_KEYS:
+            raise VantaError("unknown key %r" % name)
+        return _MAC_KEYS[nm]
+    if sys.platform.startswith("win"):
+        if nm not in _WIN_KEYS:
+            raise VantaError("unknown key %r" % name)
+        return _WIN_KEYS[nm]
+    return nm   # linux: pass the name to xdotool
+
+
+def _send_key(name, down):
+    if sys.platform == "darwin":
+        cg, _pt, cf = _mac_cg()
+        ev = cg.CGEventCreateKeyboardEvent(None, _keycode(name), down)
+        cg.CGEventPost(0, ev)
+        cf.CFRelease(ev)
+        return True
+    if sys.platform.startswith("win"):
+        flags = 0 if down else 2
+        ctypes.windll.user32.keybd_event(_keycode(name), 0, flags, 0)
+        return True
+    if not down:
+        return True
+    if shutil.which("xdotool"):
+        subprocess.run(["xdotool", "key", display(name)], timeout=5)
+        return True
+    raise VantaError("key input on Linux needs xdotool (apt install xdotool)")
+
+
+def _key_state(name):
+    if sys.platform == "darwin":
+        cg, _pt, _cf = _mac_cg()
+        return bool(cg.CGEventSourceKeyState(1, _keycode(name)))   # HID system state
+    if sys.platform.startswith("win"):
+        return bool(ctypes.windll.user32.GetAsyncKeyState(_keycode(name)) & 0x8000)
+    return False
+
+
+def _type_text(text):
+    if sys.platform == "darwin":
+        cg, _pt, cf = _mac_cg()
+        for ch in text:
+            u16 = ch.encode("utf-16-le")
+            n = len(u16) // 2
+            arr = (ctypes.c_uint16 * n).from_buffer_copy(u16)
+            for d in (True, False):
+                ev = cg.CGEventCreateKeyboardEvent(None, 0, d)
+                cg.CGEventKeyboardSetUnicodeString(ev, n, arr)
+                cg.CGEventPost(0, ev)
+                cf.CFRelease(ev)
+        return True
+    if sys.platform.startswith("win"):
+        u = ctypes.windll.user32
+        for ch in text:
+            code = ord(ch)
+            u.keybd_event(0, code, 0x4, 0)   # KEYEVENTF_UNICODE down
+            u.keybd_event(0, code, 0x4 | 0x2, 0)
+        return True
+    if shutil.which("xdotool"):
+        subprocess.run(["xdotool", "type", text], timeout=10)
+        return True
+    raise VantaError("typing on Linux needs xdotool")
+
+
+def _mouse_move(x, y):
+    if sys.platform == "darwin":
+        cg, CGPoint, _cf = _mac_cg()
+        cg.CGWarpMouseCursorPosition(CGPoint(float(x), float(y)))
+        return True
+    if sys.platform.startswith("win"):
+        ctypes.windll.user32.SetCursorPos(int(x), int(y))
+        return True
+    if shutil.which("xdotool"):
+        subprocess.run(["xdotool", "mousemove", str(int(x)), str(int(y))], timeout=5)
+        return True
+    raise VantaError("mouse on Linux needs xdotool")
+
+
+def _mouse_click(button):
+    b = display(button).lower() if button is not None else "left"
+    if sys.platform == "darwin":
+        cg, CGPoint, cf = _mac_cg()
+        loc = cg.CGEventGetLocation(cg.CGEventCreate(None))
+        down, up, bt = (1, 2, 0) if b != "right" else (3, 4, 1)
+        for ty in (down, up):
+            ev = cg.CGEventCreateMouseEvent(None, ty, loc, bt)
+            cg.CGEventPost(0, ev)
+            cf.CFRelease(ev)
+        return True
+    if sys.platform.startswith("win"):
+        u = ctypes.windll.user32
+        dn, upf = (0x0002, 0x0004) if b != "right" else (0x0008, 0x0010)
+        u.mouse_event(dn, 0, 0, 0, 0)
+        u.mouse_event(upf, 0, 0, 0, 0)
+        return True
+    if shutil.which("xdotool"):
+        subprocess.run(["xdotool", "click", "3" if b == "right" else "1"], timeout=5)
+        return True
+    raise VantaError("mouse on Linux needs xdotool")
+
+
+def _mouse_pos():
+    if sys.platform == "darwin":
+        cg, _pt, _cf = _mac_cg()
+        p = cg.CGEventGetLocation(cg.CGEventCreate(None))
+        return {"x": p.x, "y": p.y}
+    if sys.platform.startswith("win"):
+        class PT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+        pt = PT()
+        ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+        return {"x": pt.x, "y": pt.y}
+    if shutil.which("xdotool"):
+        r = subprocess.run(["xdotool", "getmouselocation"], capture_output=True, text=True, timeout=5)
+        x = y = 0
+        for tok in r.stdout.split():
+            if tok.startswith("x:"): x = int(tok[2:])
+            if tok.startswith("y:"): y = int(tok[2:])
+        return {"x": x, "y": y}
+    return {"x": 0, "y": 0}
+
+
+def b_press_key(args):
+    _need(args, 1, "press_key")
+    _send_key(args[0], True)
+    time.sleep(0.01)
+    _send_key(args[0], False)
+    return True
+
+def b_key_down(args):
+    _need(args, 1, "key_down")
+    return _send_key(args[0], True)
+
+def b_key_up(args):
+    _need(args, 1, "key_up")
+    return _send_key(args[0], False)
+
+def b_type_text(args):
+    _need(args, 1, "type_text")
+    return _type_text(display(args[0]))
+
+def b_key_pressed(args):
+    _need(args, 1, "key_pressed")
+    return _key_state(args[0])
+
+def b_wait_key(args):
+    if len(args) not in (1, 2):
+        raise VantaError("wait_key expects a key (and an optional timeout in seconds)")
+    name = args[0]
+    deadline = None
+    if len(args) == 2:
+        deadline = time.time() + num_arg(args[1], "wait_key")
+    while _key_state(name):                 # let a held key release first
+        time.sleep(0.01)
+        if deadline and time.time() > deadline:
+            return False
+    while not _key_state(name):              # then wait for a fresh press
+        time.sleep(0.01)
+        if deadline and time.time() > deadline:
+            return False
+    return True
+
+def b_mouse_move(args):
+    _need(args, 2, "mouse_move")
+    return _mouse_move(num_arg(args[0], "mouse_move"), num_arg(args[1], "mouse_move"))
+
+def b_mouse_click(args):
+    if len(args) not in (0, 1):
+        raise VantaError("mouse_click takes an optional button (\"left\" or \"right\")")
+    return _mouse_click(args[0] if args else None)
+
+def b_mouse_pos(args):
+    _need(args, 0, "mouse_pos")
+    return _mouse_pos()
+
+
+def _hotkey_loop(name, fn, stop):
+    was = False
+    while not stop.is_set():
+        try:
+            now = _key_state(name)
+        except Exception:
+            now = False
+        if now and not was:
+            try:
+                apply_callable(fn, [])
+            except Exception:
+                pass
+        was = now
+        stop.wait(0.02)
+
+def b_on_hotkey(args):
+    _need(args, 2, "on_hotkey")
+    name = args[0]
+    fn = args[1]
+    if not isinstance(fn, (Function, Builtin, BoundMethod)):
+        raise VantaError("on_hotkey's second argument must be a function to run")
+    _keycode(name)                          # validate the key now
+    stop = _threading.Event()
+    t = _threading.Thread(target=_hotkey_loop, args=(name, fn, stop), daemon=True)
+    t.start()
+    _HOTKEY_ID[0] += 1
+    hid = _HOTKEY_ID[0]
+    _HOTKEYS[hid] = stop
+    return hid
+
+def b_clear_hotkey(args):
+    _need(args, 1, "clear_hotkey")
+    hid = int_arg(args[0], "clear_hotkey")
+    if hid in _HOTKEYS:
+        _HOTKEYS[hid].set()
+        del _HOTKEYS[hid]
+        return True
+    return False
+
+
 BUILTINS = {
     # conversions & inspection
     "length": b_length, "text": b_text, "number": b_number, "typeof": b_typeof,
@@ -3206,6 +3485,11 @@ BUILTINS = {
     "read_mem": b_read_mem, "write_mem": b_write_mem, "mem_regions": b_mem_regions,
     "mem_scan": b_mem_scan, "mem_next": b_mem_next,
     "freeze": b_freeze, "unfreeze": b_unfreeze,
+    # input + global hotkeys (press keys, move/click mouse, toggle a cheat with F1)
+    "press_key": b_press_key, "key_down": b_key_down, "key_up": b_key_up,
+    "type_text": b_type_text, "key_pressed": b_key_pressed, "wait_key": b_wait_key,
+    "mouse_move": b_mouse_move, "mouse_click": b_mouse_click, "mouse_pos": b_mouse_pos,
+    "on_hotkey": b_on_hotkey, "clear_hotkey": b_clear_hotkey,
 }
 
 # A first-class value for every builtin, so they can be passed to map/keep/etc.
