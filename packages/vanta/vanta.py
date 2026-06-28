@@ -31,8 +31,11 @@ import io
 import base64
 import hashlib
 import contextlib
+import ctypes
+import struct as _struct
+import threading as _threading
 
-VERSION = "4.7"
+VERSION = "4.8"
 
 # Command-line arguments passed to a Vanta program (after the script name).
 PROGRAM_ARGS = []
@@ -2786,6 +2789,358 @@ def b_typeof(args):
     return "nothing"
 
 
+# ===========================================================================
+# GAME-CHEAT / MEMORY TOOLKIT
+# Read & write another running program's memory the way a trainer or Cheat
+# Engine does - find the health/ammo/gold value, then write or freeze it.
+# Cross-platform: macOS (mach), Linux (/proc/<pid>/mem), Windows (kernel32).
+# Your OWN process always works; editing ANOTHER process needs privileges
+# (sudo / Administrator), and on macOS System Integrity Protection may block
+# it. For single-player / offline games - online games have anti-cheat and
+# editing them breaks their terms of service.
+# ===========================================================================
+_MEM_HANDLES = {}
+_FREEZES = {}
+_FREEZE_ID = [0]
+_SIZES = {"byte": 1, "int": 4, "float": 4, "long": 8, "double": 8}
+
+
+def _mem_proc_list():
+    out = []
+    try:
+        if sys.platform.startswith("win"):
+            r = subprocess.run(["tasklist", "/fo", "csv", "/nh"],
+                               capture_output=True, text=True, timeout=15)
+            import csv
+            for row in csv.reader(io.StringIO(r.stdout)):
+                if len(row) >= 2 and row[1].isdigit():
+                    out.append((int(row[1]), row[0]))
+        else:
+            r = subprocess.run(["ps", "-axo", "pid=,comm="],
+                               capture_output=True, text=True, timeout=15)
+            for ln in r.stdout.splitlines():
+                ln = ln.strip()
+                if not ln:
+                    continue
+                a, _, b = ln.partition(" ")
+                if a.isdigit():
+                    out.append((int(a), os.path.basename(b.strip())))
+    except Exception:
+        pass
+    return out
+
+
+def _addr(v):
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        raise VantaError("a memory address must be a number")
+    return int(v)
+
+
+def _mac_task(pid):
+    c = ctypes.CDLL(None, use_errno=True)
+    c.mach_task_self.restype = ctypes.c_uint
+    if pid == os.getpid():
+        return c.mach_task_self()
+    task = ctypes.c_uint(0)
+    c.task_for_pid.argtypes = [ctypes.c_uint, ctypes.c_int, ctypes.POINTER(ctypes.c_uint)]
+    kr = c.task_for_pid(c.mach_task_self(), pid, ctypes.byref(task))
+    if kr != 0:
+        raise VantaError("can't attach to pid %d (mach error %d). Editing another app "
+                         "needs `sudo`, and macOS SIP may still block it; your own "
+                         "process works without sudo." % (pid, kr))
+    return task.value
+
+
+def _open(pid):
+    if pid in _MEM_HANDLES:
+        return _MEM_HANDLES[pid]
+    if sys.platform == "darwin":
+        h = ("darwin", _mac_task(pid))
+    elif sys.platform.startswith("linux"):
+        h = ("linux", pid)
+    elif sys.platform.startswith("win"):
+        k = ctypes.windll.kernel32
+        hp = k.OpenProcess(0x0010 | 0x0020 | 0x0008 | 0x0400, False, pid)
+        if not hp:
+            raise VantaError("OpenProcess failed for pid %d (run as Administrator)." % pid)
+        h = ("win", hp)
+    else:
+        raise VantaError("memory editing isn't supported on this platform")
+    _MEM_HANDLES[pid] = h
+    return h
+
+
+def _mem_read_raw(pid, addr, size):
+    kind, h = _open(pid)
+    if kind == "darwin":
+        c = ctypes.CDLL(None, use_errno=True)
+        buf = (ctypes.c_char * size)()
+        out = ctypes.c_ulonglong(0)
+        f = c.mach_vm_read_overwrite
+        f.restype = ctypes.c_int
+        f.argtypes = [ctypes.c_uint, ctypes.c_ulonglong, ctypes.c_ulonglong,
+                      ctypes.c_ulonglong, ctypes.POINTER(ctypes.c_ulonglong)]
+        if f(h, addr, size, ctypes.addressof(buf), ctypes.byref(out)) != 0:
+            return None
+        return bytes(buf[:out.value])
+    if kind == "linux":
+        try:
+            fd = os.open("/proc/%d/mem" % pid, os.O_RDONLY)
+            try:
+                return os.pread(fd, size, addr)
+            finally:
+                os.close(fd)
+        except Exception:
+            return None
+    if kind == "win":
+        k = ctypes.windll.kernel32
+        buf = (ctypes.c_char * size)()
+        n = ctypes.c_size_t(0)
+        if not k.ReadProcessMemory(h, ctypes.c_void_p(addr), buf, size, ctypes.byref(n)):
+            return None
+        return bytes(buf[:n.value])
+    return None
+
+
+def _mem_write_raw(pid, addr, data):
+    kind, h = _open(pid)
+    if kind == "darwin":
+        c = ctypes.CDLL(None, use_errno=True)
+        f = c.mach_vm_write
+        f.restype = ctypes.c_int
+        f.argtypes = [ctypes.c_uint, ctypes.c_ulonglong, ctypes.c_ulonglong, ctypes.c_uint]
+        buf = (ctypes.c_char * len(data)).from_buffer_copy(data)
+        return f(h, addr, ctypes.addressof(buf), len(data)) == 0
+    if kind == "linux":
+        try:
+            fd = os.open("/proc/%d/mem" % pid, os.O_WRONLY)
+            try:
+                os.pwrite(fd, data, addr)
+                return True
+            finally:
+                os.close(fd)
+        except Exception:
+            return False
+    if kind == "win":
+        k = ctypes.windll.kernel32
+        buf = (ctypes.c_char * len(data)).from_buffer_copy(data)
+        n = ctypes.c_size_t(0)
+        return bool(k.WriteProcessMemory(h, ctypes.c_void_p(addr), buf, len(data), ctypes.byref(n)))
+    return False
+
+
+def _mem_regions(pid):
+    kind, h = _open(pid)
+    regs = []
+    if kind == "darwin":
+        c = ctypes.CDLL(None, use_errno=True)
+        f = c.mach_vm_region
+        f.restype = ctypes.c_int
+        f.argtypes = [ctypes.c_uint, ctypes.POINTER(ctypes.c_ulonglong),
+                      ctypes.POINTER(ctypes.c_ulonglong), ctypes.c_int, ctypes.c_void_p,
+                      ctypes.POINTER(ctypes.c_uint), ctypes.POINTER(ctypes.c_uint)]
+        info = (ctypes.c_int * 16)()
+        addr = 0
+        for _ in range(200000):
+            a = ctypes.c_ulonglong(addr); s = ctypes.c_ulonglong(0)
+            cnt = ctypes.c_uint(16); obj = ctypes.c_uint(0)
+            if f(h, ctypes.byref(a), ctypes.byref(s), 9, ctypes.cast(info, ctypes.c_void_p),
+                 ctypes.byref(cnt), ctypes.byref(obj)) != 0:
+                break
+            if info[0] & 1:                       # VM_PROT_READ
+                regs.append((a.value, s.value))
+            nxt = a.value + s.value
+            if nxt <= addr:
+                break
+            addr = nxt
+    elif kind == "linux":
+        try:
+            for ln in open("/proc/%d/maps" % pid):
+                p = ln.split()
+                if len(p) >= 2 and "r" in p[1]:
+                    s, e = p[0].split("-")
+                    regs.append((int(s, 16), int(e, 16) - int(s, 16)))
+        except Exception:
+            pass
+    elif kind == "win":
+        k = ctypes.windll.kernel32
+
+        class MBI(ctypes.Structure):
+            _fields_ = [("BaseAddress", ctypes.c_void_p), ("AllocationBase", ctypes.c_void_p),
+                        ("AllocationProtect", ctypes.c_ulong), ("RegionSize", ctypes.c_size_t),
+                        ("State", ctypes.c_ulong), ("Protect", ctypes.c_ulong), ("Type", ctypes.c_ulong)]
+        addr = 0
+        mbi = MBI()
+        while k.VirtualQueryEx(h, ctypes.c_void_p(addr), ctypes.byref(mbi), ctypes.sizeof(mbi)):
+            if mbi.State == 0x1000 and (mbi.Protect & 0xEE):
+                regs.append((addr, mbi.RegionSize))
+            addr += mbi.RegionSize or 0x1000
+            if addr > 0x7FFFFFFFFFFF:
+                break
+    return regs
+
+
+def _pack(value, kind):
+    if kind == "float":  return _struct.pack("<f", float(value))
+    if kind == "double": return _struct.pack("<d", float(value))
+    if kind == "byte":   return bytes([int(value) & 0xFF])
+    if kind == "long":   return _struct.pack("<q", int(value))
+    return _struct.pack("<i", int(value))
+
+
+def _unpack(data, kind):
+    if kind == "float":  return _struct.unpack("<f", data)[0]
+    if kind == "double": return _struct.unpack("<d", data)[0]
+    if kind == "byte":   return data[0]
+    if kind == "long":   return _struct.unpack("<q", data)[0]
+    return _struct.unpack("<i", data)[0]
+
+
+def _mem_kind(args, i, name):
+    return display(args[i]) if len(args) > i else "int"
+
+
+def b_process_list(args):
+    _need(args, 0, "process_list")
+    return [{"pid": p, "name": n} for (p, n) in _mem_proc_list()]
+
+
+def b_find_pid(args):
+    _need(args, 1, "find_pid")
+    q = display(args[0]).lower()
+    for (p, n) in _mem_proc_list():
+        if q in n.lower():
+            return p
+    return 0
+
+
+def b_read_int(args):
+    if len(args) not in (2, 3):
+        raise VantaError("read_int expects a pid and an address (+ optional kind)")
+    kind = _mem_kind(args, 2, "read_int")
+    size = _SIZES.get(kind, 4)
+    data = _mem_read_raw(int_arg(args[0], "read_int"), _addr(args[1]), size)
+    if data is None or len(data) < size:
+        raise VantaError("could not read that address (wrong pid/address, or needs sudo)")
+    return _unpack(data, kind)
+
+
+def b_read_float(args):
+    if len(args) != 2:
+        raise VantaError("read_float expects a pid and an address")
+    return b_read_int([args[0], args[1], "float"])
+
+
+def b_write_int(args):
+    if len(args) not in (3, 4):
+        raise VantaError("write_int expects a pid, an address, and a value (+ optional kind)")
+    kind = _mem_kind(args, 3, "write_int")
+    return _mem_write_raw(int_arg(args[0], "write_int"), _addr(args[1]), _pack(args[2], kind))
+
+
+def b_write_float(args):
+    if len(args) != 3:
+        raise VantaError("write_float expects a pid, an address, and a value")
+    return b_write_int([args[0], args[1], args[2], "float"])
+
+
+def b_read_mem(args):
+    _need(args, 3, "read_mem")
+    data = _mem_read_raw(int_arg(args[0], "read_mem"), _addr(args[1]),
+                         int_arg(args[2], "read_mem"))
+    return list(data) if data is not None else []
+
+
+def b_write_mem(args):
+    _need(args, 3, "write_mem")
+    if not isinstance(args[2], list):
+        raise VantaError("write_mem needs a pid, an address, and a list of 0-255 bytes")
+    return _mem_write_raw(int_arg(args[0], "write_mem"), _addr(args[1]),
+                          bytes(int(x) & 0xFF for x in args[2]))
+
+
+def b_mem_regions(args):
+    _need(args, 1, "mem_regions")
+    return [{"address": s, "size": sz}
+            for (s, sz) in _mem_regions(int_arg(args[0], "mem_regions"))]
+
+
+def b_mem_scan(args):
+    if len(args) not in (2, 3):
+        raise VantaError("mem_scan expects a pid and a value (+ optional kind like \"float\")")
+    pid = int_arg(args[0], "mem_scan")
+    kind = _mem_kind(args, 2, "mem_scan")
+    needle = _pack(args[1], kind)
+    hits = []
+    for (start, size) in _mem_regions(pid):
+        if size > 64 * 1024 * 1024:               # skip huge mappings to stay responsive
+            continue
+        data = _mem_read_raw(pid, start, size)
+        if not data:
+            continue
+        off = data.find(needle)
+        while off != -1:
+            hits.append(start + off)
+            if len(hits) >= 200000:
+                return hits
+            off = data.find(needle, off + 1)
+    return hits
+
+
+def b_mem_next(args):
+    if len(args) not in (3, 4):
+        raise VantaError("mem_next expects a pid, the previous addresses, and the new value")
+    if not isinstance(args[1], list):
+        raise VantaError("mem_next needs the list of addresses from a previous mem_scan")
+    pid = int_arg(args[0], "mem_next")
+    kind = _mem_kind(args, 3, "mem_next")
+    target = _pack(args[2], kind)
+    n = len(target)
+    out = []
+    for a in args[1]:
+        d = _mem_read_raw(pid, _addr(a), n)
+        if d == target:
+            out.append(_addr(a))
+    return out
+
+
+def _freeze_loop(pid, addr, data, stop):
+    while not stop.is_set():
+        _mem_write_raw(pid, addr, data)
+        stop.wait(0.03)
+
+
+def b_freeze(args):
+    if len(args) not in (3, 4):
+        raise VantaError("freeze expects a pid, an address, and a value (+ optional kind)")
+    pid = int_arg(args[0], "freeze")
+    addr = _addr(args[1])
+    kind = _mem_kind(args, 3, "freeze")
+    data = _pack(args[2], kind)
+    stop = _threading.Event()
+    t = _threading.Thread(target=_freeze_loop, args=(pid, addr, data, stop), daemon=True)
+    t.start()
+    _FREEZE_ID[0] += 1
+    fid = _FREEZE_ID[0]
+    _FREEZES[fid] = stop
+    return fid
+
+
+def b_unfreeze(args):
+    _need(args, 1, "unfreeze")
+    fid = int_arg(args[0], "unfreeze")
+    if fid in _FREEZES:
+        _FREEZES[fid].set()
+        del _FREEZES[fid]
+        return True
+    return False
+
+
+def b_my_pid(args):
+    _need(args, 0, "my_pid")
+    return os.getpid()
+
+
 BUILTINS = {
     # conversions & inspection
     "length": b_length, "text": b_text, "number": b_number, "typeof": b_typeof,
@@ -2844,6 +3199,13 @@ BUILTINS = {
     "download": b_download, "render_html": b_render_html,
     "url_encode": b_url_encode, "url_decode": b_url_decode,
     "html_escape": b_html_escape,
+    # game-cheat / memory toolkit (read & write a running program's memory)
+    "process_list": b_process_list, "find_pid": b_find_pid, "my_pid": b_my_pid,
+    "read_int": b_read_int, "write_int": b_write_int,
+    "read_float": b_read_float, "write_float": b_write_float,
+    "read_mem": b_read_mem, "write_mem": b_write_mem, "mem_regions": b_mem_regions,
+    "mem_scan": b_mem_scan, "mem_next": b_mem_next,
+    "freeze": b_freeze, "unfreeze": b_unfreeze,
 }
 
 # A first-class value for every builtin, so they can be passed to map/keep/etc.
