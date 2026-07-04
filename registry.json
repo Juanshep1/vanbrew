@@ -1,6 +1,6 @@
 {
   "vanta": {
-    "version": "4.9",
+    "version": "5.0",
     "summary": "The Vanta plain-English programming language & interpreter (4.4: HTTP client now decodes gzip/deflate + page charset)",
     "files": [
       {
@@ -166,7 +166,7 @@
     ]
   },
   "vcode": {
-    "version": "5.0",
+    "version": "5.1",
     "summary": "Vanta Code (vcode) - a Claude Code-style terminal coding agent for Vanta. vanbrew install vcode, then vcode (it prompts for your API key). v5: sees images you drag into the terminal (+ /paste), streams replies live, todo checklists, subagents, vanta_eval, /doctor, edit/search/glob, diffs, themes, full model lists",
     "deps": [
       "vanta"

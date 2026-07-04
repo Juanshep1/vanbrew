@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "5.0"          # vision, streaming, todos, subagents, /doctor
+VERSION = "5.1"          # knows the Vanta 5.0 stdlib (unique/zip/merge/format_date/...)
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -271,6 +271,7 @@ SYSTEM = """You are Vanta Code, a focused terminal coding agent that specializes
 - Conditionals: `if <cond>` / `otherwise if <cond>` / `otherwise` / `end`. Comparisons in words: `is`, `is not`, `is at least`, `is at most`, `is over`, `is under`. Combine with `and`, `or`, `not`. Membership/substring: `x is in y`.
 - Loops: `for each item in <list>` ... `end`; `while <cond>` ... `end`; numeric ranges via `range(a, b)`.
 - Lists: `let xs be []`, `add 3 to xs`, index `xs[0]`, `length(xs)`. Maps: `let m be {"k": 1}`, read `m["k"]`, set `change m at "k" to 2`, `keys(m)`.
+- Vanta 5.0 stdlib: lists `unique/zip/flatten/index_of/last_index_of/insert_at/shuffle/pick/chunk/sort(xs, "desc")/any_where(fn,xs)/all_where(fn,xs)`; maps `get(m,k,fallback)/has_key/remove_key/merge/entries`; text `repeat_text/title_case/capitalize/format_number(n,digits)`; numbers `clamp(x,lo,hi)/sign/round(x,digits)/asin/acos/atan/atan2/random_float()`; dates `format_date(stamp,pattern)/parse_date(text,pattern)` (strftime patterns).
 - Strings: `uppercase(s)`, `lowercase(s)`, `trim(s)`, `slice(s, a, b)`, `replace(s, old, new)`, `split(s, sep)`, `join(list, sep)`, `starts_with(s, pre)`, `ends_with(s, suf)`, `find(s, sub)` (index or -1), `contains(s, sub)`, `reverse`, `length(s)`. NOTE the case builtins are `uppercase`/`lowercase` — there is NO `upper`/`lower`.
 - Triple-quoted strings (Vanta 4.5+): `\"\"\"...\"\"\"` is a RAW multi-line string - write HTML/CSS/JS verbatim across many lines, braces are LITERAL (no `{{`/`}}` escaping). This is the clean way to embed a web page. For dynamic bits, concatenate: `\"\"\"<div>\"\"\" + text(n) + \"\"\"</div>\"\"\"`.
 - String interpolation (single-line `"..."` only): `"hi {name}"` inserts name's value; `"{2 + 2}"` -> `4`. In single-line strings a literal brace must be doubled (`{{`/`}}`); inside `\"\"\"triple\"\"\"` strings braces are already literal so just write them once.

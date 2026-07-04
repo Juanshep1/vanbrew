@@ -35,7 +35,7 @@ import ctypes
 import struct as _struct
 import threading as _threading
 
-VERSION = "4.9"
+VERSION = "5.0"
 
 # Command-line arguments passed to a Vanta program (after the script name).
 PROGRAM_ARGS = []
@@ -1706,8 +1706,12 @@ def b_abs(args):
 
 
 def b_round(args):
-    _need(args, 1, "round")
-    return round(num_arg(args[0], "round"))
+    if len(args) == 1:
+        return round(num_arg(args[0], "round"))
+    if len(args) == 2:
+        digits = int_arg(args[1], "round")
+        return round(num_arg(args[0], "round"), digits)
+    raise VantaError("round expects a number (and an optional digit count)")
 
 
 def b_floor(args):
@@ -1889,11 +1893,19 @@ def b_values(args):
 
 
 def b_sort(args):
-    _need(args, 1, "sort")
+    if len(args) not in (1, 2):
+        raise VantaError('sort expects a list (and an optional "desc")')
     if not isinstance(args[0], list):
         raise VantaError("sort needs a list")
+    desc = False
+    if len(args) == 2:
+        order = display(args[1]).lower()
+        if order in ("desc", "descending", "reverse"):
+            desc = True
+        elif order not in ("asc", "ascending"):
+            raise VantaError('sort\'s second value should be "asc" or "desc"')
     try:
-        return sorted(args[0])
+        return sorted(args[0], reverse=desc)
     except TypeError:
         raise VantaError("sort needs a list of all numbers or all text")
 
@@ -3420,6 +3432,262 @@ def b_clear_hotkey(args):
     return False
 
 
+# ---- v5.0 stdlib completeness: lists, maps, text, numbers, dates ---------
+
+def b_unique(args):
+    _need(args, 1, "unique")
+    if not isinstance(args[0], list):
+        raise VantaError("unique needs a list")
+    seen, out = [], []
+    for v in args[0]:
+        if v not in seen:
+            seen.append(v)
+            out.append(v)
+    return out
+
+
+def b_zip(args):
+    _need(args, 2, "zip")
+    a, b = args
+    if not (isinstance(a, list) and isinstance(b, list)):
+        raise VantaError("zip needs two lists")
+    return [[x, y] for x, y in zip(a, b)]
+
+
+def b_flatten(args):
+    _need(args, 1, "flatten")
+    if not isinstance(args[0], list):
+        raise VantaError("flatten needs a list")
+    out = []
+    for v in args[0]:
+        if isinstance(v, list):
+            out.extend(v)
+        else:
+            out.append(v)
+    return out
+
+
+def b_index_of(args):
+    _need(args, 2, "index_of")
+    coll, item = args
+    if isinstance(coll, str):
+        return coll.find(display(item))
+    if isinstance(coll, list):
+        for i, v in enumerate(coll):
+            if v == item:
+                return i
+        return -1
+    raise VantaError("index_of works on lists or text")
+
+
+def b_insert_at(args):
+    _need(args, 3, "insert_at")
+    if not isinstance(args[0], list):
+        raise VantaError("insert_at needs a list, a position, and a value")
+    out = list(args[0])
+    out.insert(int_arg(args[1], "insert_at"), args[2])
+    return out
+
+
+def b_shuffle(args):
+    _need(args, 1, "shuffle")
+    if not isinstance(args[0], list):
+        raise VantaError("shuffle needs a list")
+    out = list(args[0])
+    random.shuffle(out)
+    return out
+
+
+def b_pick(args):
+    _need(args, 1, "pick")
+    if not isinstance(args[0], list) or not args[0]:
+        raise VantaError("pick needs a non-empty list")
+    return random.choice(args[0])
+
+
+def b_chunk(args):
+    _need(args, 2, "chunk")
+    if not isinstance(args[0], list):
+        raise VantaError("chunk needs a list and a size")
+    size = int_arg(args[1], "chunk")
+    if size < 1:
+        raise VantaError("chunk needs a size of at least 1")
+    return [args[0][i:i + size] for i in range(0, len(args[0]), size)]
+
+
+def b_any_where(args):
+    _need(args, 2, "any_where")
+    fn, seq = args
+    if not isinstance(seq, list):
+        raise VantaError("any_where needs a function and a list")
+    return any(truthy(apply_callable(fn, [x])) for x in seq)
+
+
+def b_all_where(args):
+    _need(args, 2, "all_where")
+    fn, seq = args
+    if not isinstance(seq, list):
+        raise VantaError("all_where needs a function and a list")
+    return all(truthy(apply_callable(fn, [x])) for x in seq)
+
+
+def b_get(args):
+    if len(args) not in (2, 3):
+        raise VantaError("get expects a map, a key, and an optional fallback")
+    m = args[0]
+    if not isinstance(m, dict):
+        raise VantaError("get needs a map")
+    key = args[1]
+    if key in m:
+        return m[key]
+    return args[2] if len(args) == 3 else None
+
+
+def b_has_key(args):
+    _need(args, 2, "has_key")
+    if not isinstance(args[0], dict):
+        raise VantaError("has_key needs a map")
+    return args[1] in args[0]
+
+
+def b_remove_key(args):
+    _need(args, 2, "remove_key")
+    if not isinstance(args[0], dict):
+        raise VantaError("remove_key needs a map")
+    out = dict(args[0])
+    out.pop(args[1], None)
+    return out
+
+
+def b_merge(args):
+    if len(args) < 2:
+        raise VantaError("merge needs at least two maps")
+    out = {}
+    for m in args:
+        if not isinstance(m, dict):
+            raise VantaError("merge needs maps")
+        out.update(m)
+    return out
+
+
+def b_entries(args):
+    _need(args, 1, "entries")
+    if not isinstance(args[0], dict):
+        raise VantaError("entries needs a map")
+    return [[k, v] for k, v in args[0].items()]
+
+
+def b_repeat_text(args):
+    _need(args, 2, "repeat_text")
+    n = int_arg(args[1], "repeat_text")
+    if n < 0:
+        raise VantaError("repeat_text needs a count of 0 or more")
+    return display(args[0]) * n
+
+
+def b_title_case(args):
+    _need(args, 1, "title_case")
+    return display(args[0]).title()
+
+
+def b_capitalize(args):
+    _need(args, 1, "capitalize")
+    s = display(args[0])
+    return s[:1].upper() + s[1:] if s else s
+
+
+def b_last_index_of(args):
+    _need(args, 2, "last_index_of")
+    coll, item = args
+    if isinstance(coll, str):
+        return coll.rfind(display(item))
+    if isinstance(coll, list):
+        for i in range(len(coll) - 1, -1, -1):
+            if coll[i] == item:
+                return i
+        return -1
+    raise VantaError("last_index_of works on lists or text")
+
+
+def b_format_number(args):
+    if len(args) not in (1, 2):
+        raise VantaError("format_number expects a number and an optional digit count")
+    value = num_arg(args[0], "format_number")
+    digits = int_arg(args[1], "format_number") if len(args) == 2 else 0
+    if digits < 0:
+        raise VantaError("format_number needs a digit count of 0 or more")
+    return f"{value:,.{digits}f}"
+
+
+def b_clamp(args):
+    _need(args, 3, "clamp")
+    value = num_arg(args[0], "clamp")
+    low = num_arg(args[1], "clamp")
+    high = num_arg(args[2], "clamp")
+    if low > high:
+        raise VantaError("clamp needs the low bound first")
+    return min(max(value, low), high)
+
+
+def b_sign(args):
+    _need(args, 1, "sign")
+    value = num_arg(args[0], "sign")
+    return (value > 0) - (value < 0)
+
+
+def b_asin(args):
+    _need(args, 1, "asin")
+    value = num_arg(args[0], "asin")
+    if value < -1 or value > 1:
+        raise VantaError("asin needs a number between -1 and 1")
+    return math.asin(value)
+
+
+def b_acos(args):
+    _need(args, 1, "acos")
+    value = num_arg(args[0], "acos")
+    if value < -1 or value > 1:
+        raise VantaError("acos needs a number between -1 and 1")
+    return math.acos(value)
+
+
+def b_atan(args):
+    _need(args, 1, "atan")
+    return math.atan(num_arg(args[0], "atan"))
+
+
+def b_atan2(args):
+    _need(args, 2, "atan2")
+    return math.atan2(num_arg(args[0], "atan2"), num_arg(args[1], "atan2"))
+
+
+def b_random_float(args):
+    _need(args, 0, "random_float")
+    return random.random()
+
+
+def b_format_date(args):
+    if len(args) not in (1, 2):
+        raise VantaError("format_date expects a timestamp and an optional pattern")
+    stamp = num_arg(args[0], "format_date")
+    pattern = display(args[1]) if len(args) == 2 else "%Y-%m-%d %H:%M:%S"
+    try:
+        return time.strftime(pattern, time.localtime(stamp))
+    except (ValueError, OverflowError, OSError):
+        raise VantaError("format_date couldn't format that timestamp")
+
+
+def b_parse_date(args):
+    if len(args) not in (1, 2):
+        raise VantaError("parse_date expects a date text and an optional pattern")
+    text_val = display(args[0])
+    pattern = display(args[1]) if len(args) == 2 else "%Y-%m-%d"
+    try:
+        return int(time.mktime(time.strptime(text_val, pattern)))
+    except (ValueError, OverflowError):
+        raise VantaError(f"parse_date couldn't read '{text_val}' with pattern '{pattern}'")
+
+
 BUILTINS = {
     # conversions & inspection
     "length": b_length, "text": b_text, "number": b_number, "typeof": b_typeof,
@@ -3490,6 +3758,20 @@ BUILTINS = {
     "type_text": b_type_text, "key_pressed": b_key_pressed, "wait_key": b_wait_key,
     "mouse_move": b_mouse_move, "mouse_click": b_mouse_click, "mouse_pos": b_mouse_pos,
     "on_hotkey": b_on_hotkey, "clear_hotkey": b_clear_hotkey,
+    # v5.0 stdlib completeness
+    "unique": b_unique, "zip": b_zip, "flatten": b_flatten,
+    "index_of": b_index_of, "insert_at": b_insert_at, "shuffle": b_shuffle,
+    "pick": b_pick, "chunk": b_chunk,
+    "any_where": b_any_where, "all_where": b_all_where,
+    "get": b_get, "has_key": b_has_key, "remove_key": b_remove_key,
+    "merge": b_merge, "entries": b_entries,
+    "repeat_text": b_repeat_text, "title_case": b_title_case,
+    "capitalize": b_capitalize, "last_index_of": b_last_index_of,
+    "format_number": b_format_number,
+    "clamp": b_clamp, "sign": b_sign,
+    "asin": b_asin, "acos": b_acos, "atan": b_atan, "atan2": b_atan2,
+    "random_float": b_random_float,
+    "format_date": b_format_date, "parse_date": b_parse_date,
 }
 
 # A first-class value for every builtin, so they can be passed to map/keep/etc.
