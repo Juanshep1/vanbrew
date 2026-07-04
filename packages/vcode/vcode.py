@@ -208,7 +208,23 @@ def _clipboard_image():
         pass
     return None
 
-_PENDING_IMAGES = []   # queued by /paste, attached to the next message
+def _clipboard_text():
+    """Plain text from the system clipboard (pbpaste / wl-paste / xclip), or ''."""
+    try:
+        if sys.platform == "darwin":
+            r = subprocess.run(["pbpaste"], stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, timeout=5)
+            return r.stdout.decode("utf-8", "replace")
+        for cmd in (["wl-paste", "--no-newline"], ["xclip", "-selection", "clipboard", "-o"]):
+            if shutil.which(cmd[0]):
+                r = subprocess.run(cmd, stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL, timeout=5)
+                return r.stdout.decode("utf-8", "replace")
+    except Exception:
+        pass
+    return ""
+
+_PENDING_IMAGES = []   # queued by Ctrl-V / /paste, attached to the next message
 
 def _image_chip(path):
     d = _img_dims(path)
@@ -1687,7 +1703,7 @@ HELP = """  Commands:
     /skills install  grab a pile of skills from a repo (default: Anthropic's official skills)
     /myskills        your pinned skills; Enter loads one to use (also: /<skill-name>)
     /skills remove <name>  unpin a skill from My Skills
-    /paste           attach an image from your clipboard to the next message
+    /paste           attach an image from your clipboard (same as Ctrl-V)
     /doctor          health-check the Vanta toolchain (vanta, vc, vself, vanbrew)
     /stream          toggle live streaming output on/off
     /todos           show the agent's current task checklist
@@ -1719,7 +1735,10 @@ HELP = """  Commands:
     #skill-name      reference a Skill right in your prompt (e.g. "make a #pdf invoice")
     ↑ / ↓            recall previous prompts (history is saved)
     drag an image    drop a PNG/JPEG onto this window — I can SEE it (screenshots,
-                     mockups, error photos…). /paste grabs one from the clipboard.
+                     mockups, error photos…)
+    Ctrl-V           paste an image straight from the clipboard (copy one, e.g.
+                     screenshot with Cmd-Ctrl-Shift-4, then Ctrl-V here); pastes
+                     clipboard text when there's no image. Also: /paste
 
   Just type what you want, e.g.:
     "write a fizzbuzz in vanta and run it"
@@ -1753,7 +1772,7 @@ SLASH_COMMANDS = [
     ("/cost",     "session time · turns · tokens"),
     ("/resume",   "reload your previous session"),
     ("/init",     "scan the project, write VANTA.md"),
-    ("/paste",    "attach an image from the clipboard"),
+    ("/paste",    "attach a clipboard image (or press Ctrl-V)"),
     ("/doctor",   "check the Vanta toolchain + setup"),
     ("/stream",   "toggle live streaming output"),
     ("/todos",    "show the agent's current checklist"),
@@ -1968,7 +1987,8 @@ def read_line():
         menu_draw()
     def raw():
         nw = termios.tcgetattr(fd)
-        nw[3] = nw[3] & ~(termios.ICANON | termios.ECHO | termios.ISIG)
+        # IEXTEN must go too, or the tty driver eats Ctrl-V as "literal-next"
+        nw[3] = nw[3] & ~(termios.ICANON | termios.ECHO | termios.ISIG | termios.IEXTEN)
         termios.tcsetattr(fd, termios.TCSANOW, nw)
     import select as _select, errno as _errno
     try:
@@ -2070,6 +2090,17 @@ def read_line():
                     continue
                 if o in (8, 127):                               # backspace / DEL
                     if cur[0] > 0: del buf[cur[0] - 1]; cur[0] -= 1
+                    continue
+                if o == 22:                                     # Ctrl-V: paste an IMAGE
+                    img = _clipboard_image()                    # (or text) from the clipboard
+                    if img:
+                        _PENDING_IMAGES.append(img)
+                        for tch in "[image #%d]" % len(_PENDING_IMAGES):
+                            buf.insert(cur[0], tch); cur[0] += 1
+                    else:
+                        for tch in _clipboard_text().replace("\r", "").replace("\n", " "):
+                            if tch >= " ":
+                                buf.insert(cur[0], tch); cur[0] += 1
                     continue
                 if ch >= " " and o != 127:                      # printable (incl. unicode)
                     buf.insert(cur[0], ch); cur[0] += 1
