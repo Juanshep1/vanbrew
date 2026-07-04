@@ -6,7 +6,7 @@ from __future__ import print_function
 import os, sys, json, time, threading, subprocess, shutil, tempfile, re, difflib
 import urllib.request, urllib.error
 
-VERSION = "4.2"
+VERSION = "5.0"          # vision, streaming, todos, subagents, /doctor
 
 # ---------------------------------------------------------------- colours ----
 COLOR = sys.stdout.isatty() and os.environ.get("TERM") not in (None, "", "dumb")
@@ -22,6 +22,7 @@ BOLD   = "1"
 # Swappable colour themes: each sets the accent (used everywhere as orange())
 # and the 5-stop wordmark gradient. Change live with /themes.
 THEMES = {
+    "dusk":      {"accent": (186, 138, 255), "grad": [(48,38,110),(110,70,220),(186,138,255),(240,170,140),(245,196,96)]},
     "ember":     {"accent": (217, 119, 87),  "grad": [(99,102,241),(168,85,247),(217,70,160),(240,118,92),(245,176,86)]},
     "synthwave": {"accent": (255, 92, 170),  "grad": [(99,72,255),(173,66,235),(255,72,180),(255,120,96),(255,196,92)]},
     "matrix":    {"accent": (90, 220, 130),  "grad": [(20,110,55),(46,190,96),(120,236,150),(196,255,205),(80,214,128)]},
@@ -29,7 +30,7 @@ THEMES = {
     "gold":      {"accent": (240, 184, 84),  "grad": [(120,64,24),(200,120,44),(245,182,84),(255,224,150),(244,176,80)]},
     "mono":      {"accent": (224, 224, 232), "grad": [(96,96,108),(150,150,162),(208,208,220),(244,244,248),(176,176,190)]},
 }
-THEME = {"name": "ember", "accent": THEMES["ember"]["accent"], "grad": list(THEMES["ember"]["grad"])}
+THEME = {"name": "dusk", "accent": THEMES["dusk"]["accent"], "grad": list(THEMES["dusk"]["grad"])}
 def set_theme(name):
     if name not in THEMES: return False
     THEME["name"] = name
@@ -100,6 +101,150 @@ class Spinner(object):
         if self._t: self._t.join(timeout=0.3)
         if COLOR: sys.stdout.write("\r\033[K"); sys.stdout.flush()
 
+# ------------------------------------------------------------------ vision ---
+# Drag an image into the terminal (the terminal pastes its path) and vcode SEES
+# it: the path is detected, the image is attached to your message as real
+# vision input. Works with Anthropic natively and OpenAI-compatible providers
+# (OpenRouter / Ollama Cloud) via image_url data URIs.
+IMG_EXTS = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp"}
+
+def _img_dims(path):
+    """Width×height straight from the file header (PNG/JPEG/GIF), no libraries."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(32)
+            if head[:8] == b"\x89PNG\r\n\x1a\n":
+                import struct
+                w, h = struct.unpack(">II", head[16:24]); return w, h
+            if head[:3] == b"GIF":
+                import struct
+                w, h = struct.unpack("<HH", head[6:10]); return w, h
+            if head[:2] == b"\xff\xd8":                     # JPEG: walk to a SOF marker
+                import struct
+                f.seek(2)
+                while True:
+                    seg = f.read(4)
+                    if len(seg) < 4: return None
+                    marker, ln = seg[0:2], struct.unpack(">H", seg[2:4])[0]
+                    if marker[0] != 0xFF: return None
+                    if 0xC0 <= marker[1] <= 0xCF and marker[1] not in (0xC4, 0xC8, 0xCC):
+                        data = f.read(5)
+                        h, w = struct.unpack(">HH", data[1:5]); return w, h
+                    f.seek(ln - 2, 1)
+    except Exception:
+        pass
+    return None
+
+def _shrink_if_possible(path, mime):
+    """>4MB images can be rejected by APIs. If Pillow happens to be installed,
+    quietly downscale to fit; otherwise send as-is (stdlib-only remains true)."""
+    try:
+        if os.path.getsize(path) <= 4 * 1024 * 1024:
+            return path, mime
+        from PIL import Image  # soft, optional dependency
+        img = Image.open(path); img.thumbnail((1568, 1568))
+        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        img.convert("RGB").save(tmp.name, "PNG", optimize=True)
+        return tmp.name, "image/png"
+    except Exception:
+        return path, mime
+
+def image_block(path):
+    """One Anthropic-style image content block (converted for OpenAI later)."""
+    import base64
+    mime = IMG_EXTS.get(os.path.splitext(path)[1].lower(), "image/png")
+    path, mime = _shrink_if_possible(path, mime)
+    with open(path, "rb") as f:
+        data = base64.b64encode(f.read()).decode("ascii")
+    return {"type": "image", "source": {"type": "base64", "media_type": mime, "data": data},
+            "_path": path}   # _path is stripped before the API call; kept for labels
+
+def extract_images(text):
+    """Pull image paths out of a prompt line. Terminals paste dragged files as
+    a plain path, 'quoted', \"quoted\", or with backslash-escaped spaces — all
+    four are handled. Returns (text_with_paths_kept, [existing image paths])."""
+    found, spans = [], []
+    pattern = re.compile(
+        r"'([^']+?\.(?:png|jpe?g|gif|webp|bmp))'"          # '…/pic.png'
+        r"|\"([^\"]+?\.(?:png|jpe?g|gif|webp|bmp))\""      # "…/pic.png"
+        r"|((?:[^\s\\]|\\ )+?\.(?:png|jpe?g|gif|webp|bmp))",  # bare / escaped spaces
+        re.IGNORECASE)
+    for m in pattern.finditer(text):
+        raw = next(g for g in m.groups() if g)
+        cand = os.path.expanduser(raw.replace("\\ ", " "))
+        if os.path.isfile(cand):
+            found.append(cand); spans.append((m.start(), m.end()))
+    return text, found
+
+def _clipboard_image():
+    """Grab an image from the system clipboard to a temp png (macOS: osascript;
+    Linux: xclip/wl-paste if present). Returns a path or None."""
+    tmp = os.path.join(tempfile.gettempdir(), "vcode-paste-%d.png" % int(time.time()))
+    try:
+        if sys.platform == "darwin":
+            script = ('set p to POSIX file "%s" \n'
+                      'try\n set png_data to the clipboard as «class PNGf»\n'
+                      ' set f to open for access p with write permission\n'
+                      ' write png_data to f\n close access f\n return "ok"\n'
+                      'on error\n return "no"\nend try' % tmp)
+            r = subprocess.run(["osascript", "-e", script], stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, timeout=10)
+            if r.stdout.decode().strip() == "ok" and os.path.getsize(tmp) > 0:
+                return tmp
+        else:
+            for cmd in (["wl-paste", "--type", "image/png"], ["xclip", "-selection", "clipboard",
+                         "-t", "image/png", "-o"]):
+                if shutil.which(cmd[0]):
+                    with open(tmp, "wb") as f:
+                        r = subprocess.run(cmd, stdout=f, stderr=subprocess.DEVNULL, timeout=10)
+                    if r.returncode == 0 and os.path.getsize(tmp) > 0:
+                        return tmp
+    except Exception:
+        pass
+    try:
+        if os.path.exists(tmp) and os.path.getsize(tmp) == 0: os.unlink(tmp)
+    except Exception:
+        pass
+    return None
+
+_PENDING_IMAGES = []   # queued by /paste, attached to the next message
+
+def _image_chip(path):
+    d = _img_dims(path)
+    dims = (" %d×%d" % d) if d else ""
+    try: kb = os.path.getsize(path) // 1024
+    except Exception: kb = 0
+    print("  " + orange("⧉ ") + bold(os.path.basename(path)) +
+          dim("  attached ·%s · %dKB · I can see it" % (dims, kb)))
+
+def _vision_likely(cfg):
+    if not cfg: return True
+    if cfg.get("kind") == "anthropic": return True
+    m = (cfg.get("model") or "").lower()
+    return any(s in m for s in ("claude", "gpt-4", "gpt-5", "gemini", "-vl", "vl:",
+                                "vision", "pixtral", "llava", "grok"))
+
+def build_user_content(text, image_paths):
+    """User message content: plain string, or [image blocks…, text] when images ride along."""
+    if not image_paths:
+        return text
+    if not _vision_likely(ACTIVE_CFG.get("cfg")):
+        print("  " + dim("⚠ ") + dim("%s may not support images — if this fails, pick a vision model "
+              "with /model (e.g. qwen3-vl) or /provider anthropic" %
+              (ACTIVE_CFG.get("cfg") or {}).get("model", "this model")))
+    blocks = []
+    for p in image_paths[:8]:
+        try:
+            blocks.append(image_block(p)); _image_chip(p)
+        except Exception as e:
+            print(red("  ⧉ couldn't attach %s: %s" % (os.path.basename(p), e)))
+    if not blocks:
+        return text
+    blocks.append({"type": "text", "text": text if text.strip() else
+                   "Look at the attached image(s) and describe what you see."})
+    return blocks
+
 # ------------------------------------------------------------ vanta knowledge -
 SYSTEM = """You are Vanta Code, a focused terminal coding agent that specializes in the Vanta programming language. You help the user read, write, run, and debug Vanta (.va) programs. Be concise and direct, like a senior pair-programmer in a terminal. Prefer doing over explaining: use your tools to read files, write code, and run it to verify.
 
@@ -122,6 +267,12 @@ Vanta is self-hosting: it can run and compile itself with zero Python at runtime
 - `vself prog.va` — a native Vanta INTERPRETER (written in Vanta, compiled to a native binary). Runs scripts directly AND web servers (`serve()`), no compile step, no Python.
 - `vc prog.va` — a native Vanta-to-C COMPILER. Compiles `prog.va` to a native binary (`prog.va.bin`) and runs it. Supports strings/lists/maps/`serve()`/HTTP/JSON/filesystem, with a garbage collector. `vc prog.va -c` compiles only (no run); `vc prog.va -k` emits freestanding kernel C.
 So for "make this run without Python" / "compile to a native binary" / "ship a standalone binary": use `vc` (via the bash tool). The runtime is POSIX C — builds on macOS and Linux (CI-verified). `run_vanta`/`run_app` (your tools) use the Python `vanta` interpreter for quick dev output; `vc`/`vself` are the native, Python-free path.
+
+# Your senses & organs
+- VISION: the user can drag an image into the terminal (or /paste one) and it arrives as real vision input - look at it directly. You can also read_file any .png/.jpg/.gif/.webp yourself to SEE it (e.g. inspect a screenshot the user mentions, or check a chart/asset you generated). When a user shows you a UI mockup or screenshot, rebuild what you SEE, faithfully.
+- set_todos: for any task with 3+ steps, put up a checklist first (one item 'active'), update it as you finish each piece, and mark everything 'done' at the end. The user watches your progress through it.
+- vanta_eval: run a small Vanta snippet in-place to check behavior (an expression, a builtin's exact output, a tricky parse) BEFORE writing it into a real file. Cheap and fast - use it instead of guessing.
+- agent: for a big self-contained side-quest (searching a large tree, analyzing many files, drafting a long doc) spawn a subagent so the main conversation stays lean. One clear prompt in, one report out.
 
 # How to work
 - FINISH THE JOB IN ONE TURN. When asked to build something, do the WHOLE task now: make the folder AND write every file with its full contents AND launch it — all in this one turn, using as many tool calls as it takes. Do NOT stop after announcing a plan, and do NOT stop after just make_dir. Never end your turn with the work half-done and never ask the user to say "continue" — only stop when the app is actually written and runnable (or you truly need a decision from the user). After a make_dir your very next action must be write_file for the real code.
@@ -203,10 +354,35 @@ def _hl_code(line):
     return dim("  │ ") + "".join(out)
 
 def session_path(): return os.path.expanduser("~/.vanta-code/last_session.json")
+
+def _strip_images_for_disk(history):
+    """Session files shouldn't carry megabytes of base64 — swap image blocks for
+    a small text stub (the conversation still reads sensibly on /resume)."""
+    out = []
+    for m in history:
+        c = m.get("content")
+        if isinstance(c, list):
+            nc = []
+            for b in c:
+                if isinstance(b, dict) and b.get("type") == "image":
+                    nc.append({"type": "text", "text": "[an image was attached here: %s]" %
+                               os.path.basename(b.get("_path", "image"))})
+                elif isinstance(b, dict) and b.get("type") == "tool_result" and isinstance(b.get("content"), list):
+                    nb = dict(b)
+                    nb["content"] = " ".join(x.get("text", "[image]") if x.get("type") == "text" else "[image]"
+                                             for x in b["content"] if isinstance(x, dict))
+                    nc.append(nb)
+                else:
+                    nc.append(b)
+            out.append({"role": m["role"], "content": nc})
+        else:
+            out.append(m)
+    return out
+
 def save_session(history):
     try:
         os.makedirs(os.path.dirname(session_path()), exist_ok=True)
-        json.dump(history, open(session_path(), "w"))
+        json.dump(_strip_images_for_disk(history), open(session_path(), "w"))
     except Exception: pass
 def load_session():
     try: return json.load(open(session_path()))
@@ -480,6 +656,15 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
     {"name": "find_skill", "description": "Search your installed Skills by keyword (matches names + descriptions). Use this when you have many skills and need to find the right one for a task; then call use_skill on the match.",
      "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+    {"name": "set_todos", "description": "Maintain your visible task checklist for multi-step work. Pass the FULL list every time (replaces the old one). Use for any task with 3+ steps: set it when you start, update statuses as you go (exactly one 'active' at a time), everything 'done' when finished.",
+     "input_schema": {"type": "object", "properties": {"todos": {"type": "array", "items":
+        {"type": "object", "properties": {"text": {"type": "string"},
+         "status": {"type": "string", "enum": ["pending", "active", "done"]}}, "required": ["text", "status"]}}},
+      "required": ["todos"]}},
+    {"name": "vanta_eval", "description": "Run a short Vanta snippet directly (no file needed) and get its console output. Perfect for quickly testing an expression, a builtin's behavior, or a small function before writing it into a real file. Do NOT use for serve() apps.",
+     "input_schema": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}},
+    {"name": "agent", "description": "Spawn a focused subagent for a self-contained side-task (a broad code search, analyzing many files, drafting something long) so the main conversation stays lean. Give it ONE clear job in 'prompt'; it works with the same tools (except spawning more agents) and returns only its final report.",
+     "input_schema": {"type": "object", "properties": {"prompt": {"type": "string"}}, "required": ["prompt"]}},
 ]
 
 def tool_find_skill(a):
@@ -527,7 +712,7 @@ MODE = {"v": "default"}   # permission mode: default | auto | plan (shift+tab cy
 MODE_ORDER = ["default", "auto", "plan"]
 # tools that change the world / run code - blocked in plan mode
 PLAN_BLOCKED = {"write_file", "edit_file", "make_dir", "move_path", "delete_path",
-                "run_vanta", "run_app", "bash"}
+                "run_vanta", "run_app", "bash", "vanta_eval"}
 
 def _confirm(action):
     if MODE["v"] == "auto": return True
@@ -553,6 +738,10 @@ def tool_read_file(a):
     if os.path.isdir(p):
         return "%s is a directory, not a file - use list_files or glob to see what's inside." % p, "is a dir"
     ext = os.path.splitext(p)[1].lower()
+    if ext in IMG_EXTS:                                # image: give the model real pixels
+        d = _img_dims(p)
+        dims = ("%d×%d" % d) if d else "image"
+        return {"__image__": p}, "🖼  %s · %s · sent to the model" % (os.path.basename(p), dims)
     skill = _DOC_SKILL.get(ext)
     if skill:                                          # binary doc: don't read as text
         hint = (' Call use_skill("%s") and follow it - the skill bundles scripts to do this.' % skill) \
@@ -812,12 +1001,118 @@ def tool_run_app(a):
     except subprocess.TimeoutExpired:
         return "(still running after 25s — if it serves, it's up; open it in your browser)", "running"
 
+# ---- the todo checklist (set_todos) ------------------------------------------
+TODOS = []
+
+def tool_set_todos(a):
+    global TODOS
+    items = a.get("todos") or []
+    TODOS = [{"text": str(t.get("text", "")), "status": t.get("status", "pending")}
+             for t in items if isinstance(t, dict)]
+    for t in TODOS:
+        if t["status"] == "done":
+            print("  " + green("✔ ") + dim(t["text"]))
+        elif t["status"] == "active":
+            print("  " + orange("▸ ") + bold(t["text"]))
+        else:
+            print("  " + dim("☐ " + t["text"]))
+    done = sum(1 for t in TODOS if t["status"] == "done")
+    return "Todo list updated (%d/%d done). Keep it current as you work." % (done, len(TODOS)), None
+
+# ---- quick Vanta snippet runner (vanta_eval) ---------------------------------
+def tool_vanta_eval(a):
+    code = a.get("code") or ""
+    if not code.strip():
+        return "no code given", "error"
+    vanta = find_vanta()
+    if not vanta:
+        return ("Vanta isn't installed - tell the user to run: "
+                "curl -fsSL https://raw.githubusercontent.com/Juanshep1/vanbrew/main/install.sh | sh "
+                "then `vanbrew install vanta`."), "vanta missing"
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".va", delete=False)
+    tmp.write(code); tmp.close()
+    try:
+        r = subprocess.run([vanta, tmp.name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+        out = r.stdout.decode("utf-8", "replace")
+    except subprocess.TimeoutExpired:
+        return "timed out after 30s (is it a server or an infinite loop?)", "timeout"
+    finally:
+        try: os.unlink(tmp.name)
+        except Exception: pass
+    out = out.strip() or "(no output)"
+    if len(out) > 8000: out = out[:8000] + "\n... (truncated)"
+    first = out.split("\n")[0][:70]
+    return out, first
+
+# ---- subagents (agent) --------------------------------------------------------
+SUBAGENT = {"depth": 0}
+
+def tool_agent(a):
+    prompt = (a.get("prompt") or "").strip()
+    if not prompt:
+        return "give the subagent one clear task in 'prompt'", "error"
+    if SUBAGENT["depth"] >= 1:
+        return "subagents can't spawn more subagents - do this part yourself", "depth limit"
+    cfg = ACTIVE_CFG.get("cfg")
+    if not cfg:
+        return "no provider configured", "error"
+    SUBAGENT["depth"] += 1
+    print("  " + dim("⎿  ") + orange("◇ subagent") + dim("  " + prompt[:70].replace("\n", " ")))
+    sub_history = [{"role": "user", "content":
+                    prompt + "\n\n(You are a subagent: do this one task with your tools, "
+                    "then give a single final report. Be thorough but do not ask questions.)"}]
+    final = ""
+    try:
+        for _ in range(15):
+            resp = call_llm(cfg, sub_history)
+            sub_history.append({"role": "assistant", "content": resp["content"]})
+            results = []
+            for b in resp["content"]:
+                if b["type"] == "text" and b["text"].strip():
+                    final = b["text"]
+                elif b["type"] == "tool_use":
+                    if b["name"] == "agent":
+                        results.append({"type": "tool_result", "tool_use_id": b["id"],
+                                        "content": "subagents cannot spawn subagents"})
+                        continue
+                    print("    " + dim("◇ " + tool_label(b["name"], b.get("input", {}))[:70]))
+                    out = run_tool_quiet(b["name"], b.get("input", {}))
+                    results.append({"type": "tool_result", "tool_use_id": b["id"], "content": out})
+            if results:
+                sub_history.append({"role": "user", "content": results})
+            if resp["stop"] != "tool":
+                break
+    except Exception as e:
+        SUBAGENT["depth"] -= 1
+        return "subagent failed: %s" % e, "error"
+    SUBAGENT["depth"] -= 1
+    return ("[Subagent report]\n" + (final or "(the subagent finished without a report)")), \
+           "%d chars reported" % len(final)
+
+def run_tool_quiet(name, a):
+    """Run a tool for a subagent without the big ⏺ header (indent output instead)."""
+    SESSION["tools"] += 1
+    if MODE["v"] == "plan" and name in PLAN_BLOCKED:
+        return "[plan mode - read-only]"
+    try:
+        fn = DISPATCH.get(name)
+        if not fn: return "unknown tool %s" % name
+        result, _ = fn(a)
+        if isinstance(result, dict) and "__image__" in result:
+            return "(an image file — read it from the main conversation, not a subagent)"
+        return result
+    except Exception as e:
+        return "Error: %s" % e
+
+ACTIVE_CFG = {"cfg": None}   # set by main() so tools (subagent) can call the LLM
+
 DISPATCH = {"read_file": tool_read_file, "write_file": tool_write_file,
             "edit_file": tool_edit_file, "search": tool_search, "glob": tool_glob,
             "list_files": tool_list_files, "make_dir": tool_make_dir,
             "move_path": tool_move_path, "delete_path": tool_delete_path,
             "run_vanta": tool_run_vanta, "run_app": tool_run_app, "bash": tool_bash,
-            "use_skill": tool_use_skill, "find_skill": tool_find_skill}
+            "use_skill": tool_use_skill, "find_skill": tool_find_skill,
+            "set_todos": tool_set_todos, "vanta_eval": tool_vanta_eval, "agent": tool_agent}
 
 def tool_label(name, a):
     if name == "read_file":  return "Read(%s)" % a.get("path", "")
@@ -833,6 +1128,9 @@ def tool_label(name, a):
     if name == "run_vanta":  return "Run(%s)" % a.get("path", "")
     if name == "run_app":    return "Open app(%s)" % a.get("path", "")
     if name == "bash":       return "Bash(%s)" % a.get("command", "")[:50]
+    if name == "set_todos":  return "Todos(%d items)" % len(a.get("todos") or [])
+    if name == "vanta_eval": return "Vanta(%s)" % " ".join((a.get("code") or "").split())[:50]
+    if name == "agent":      return "Agent(%s)" % " ".join((a.get("prompt") or "").split())[:60]
     return "%s(%s)" % (name, a)
 
 def run_tool(name, a):
@@ -893,6 +1191,23 @@ def http_json(url, payload, headers, timeout=300, retries=3):
             raise last
     if last: raise last
 
+def wire_history(history):
+    """A copy of the history safe to send to Anthropic: private keys (like the
+    _path riding on image blocks) stripped from content blocks."""
+    out = []
+    for m in history:
+        c = m.get("content")
+        if isinstance(c, list):
+            c = [{k: v for k, v in b.items() if not k.startswith("_")} if isinstance(b, dict) else b
+                 for b in c]
+        out.append({"role": m["role"], "content": c})
+    return out
+
+def _oai_image(b):
+    s = b.get("source", {})
+    return {"type": "image_url", "image_url":
+            {"url": "data:%s;base64,%s" % (s.get("media_type", "image/png"), s.get("data", ""))}}
+
 def to_openai_msgs(history):
     out = []
     for m in history:
@@ -908,29 +1223,38 @@ def to_openai_msgs(history):
             msg = {"role": "assistant", "content": text}   # "" not None: Ollama/OpenAI reject null content
             if calls: msg["tool_calls"] = calls
             out.append(msg)
-        else:  # user with tool_result blocks
-            for b in m["content"]:
+        elif any(isinstance(b, dict) and b.get("type") == "tool_result" for b in m["content"]):
+            trailing = []   # tool messages can't carry images in the OpenAI shape,
+            for b in m["content"]:   # so image results ride in a user message right after
                 if b["type"] == "tool_result":
                     c = b.get("content", "")
+                    if isinstance(c, list):
+                        imgs = [_oai_image(x) for x in c if isinstance(x, dict) and x.get("type") == "image"]
+                        c = " ".join(x.get("text", "") for x in c
+                                     if isinstance(x, dict) and x.get("type") == "text") or "(image)"
+                        if imgs:
+                            trailing.append({"role": "user", "content":
+                                [{"type": "text", "text": "(the image from that tool call:)"}] + imgs})
                     out.append({"role": "tool", "tool_call_id": b["tool_use_id"], "content": c if isinstance(c, str) else str(c)})
                 elif b["type"] == "text":
                     out.append({"role": "user", "content": b["text"]})
+            out.extend(trailing)
+        else:   # a user message with images and/or text -> OpenAI content-parts
+            parts = []
+            for b in m["content"]:
+                if b.get("type") == "image": parts.append(_oai_image(b))
+                elif b.get("type") == "text": parts.append({"type": "text", "text": b["text"]})
+            out.append({"role": "user", "content": parts if parts else ""})
     return out
 
-def call_llm(cfg, history):
-    """Return a normalized assistant message: {content:[blocks], stop:'tool'|'end'}."""
+def _payload_headers(cfg, history, stream=False):
     if cfg["kind"] == "anthropic":
         payload = {"model": cfg["model"], "max_tokens": MAX_TOKENS, "system": SYSTEM + _CTX["text"],
-                   "messages": history, "tools": TOOLS}
+                   "messages": wire_history(history), "tools": TOOLS}
         headers = {"x-api-key": cfg["key"], "anthropic-version": "2023-06-01",
                    "content-type": "application/json"}
-        j = http_json("https://api.anthropic.com/v1/messages", payload, headers)
-        u = j.get("usage", {}) or {}
-        USAGE["ctx"] = u.get("input_tokens", USAGE["ctx"]); USAGE["out"] += u.get("output_tokens", 0)
-        blocks = j.get("content", [])
-        stop = "tool" if j.get("stop_reason") == "tool_use" else "end"
-        return {"content": blocks, "stop": stop, "trunc": j.get("stop_reason") == "max_tokens"}
-    else:  # openai-compatible (openrouter)
+        url = "https://api.anthropic.com/v1/messages"
+    else:
         oai_tools = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
                       "parameters": t["input_schema"]}} for t in TOOLS]
         msgs = [{"role": "system", "content": SYSTEM + _CTX["text"]}] + to_openai_msgs(history)
@@ -938,22 +1262,164 @@ def call_llm(cfg, history):
                    "tools": oai_tools, "tool_choice": "auto"}
         headers = {"Authorization": "Bearer " + cfg["key"], "content-type": "application/json",
                    "HTTP-Referer": "https://github.com/Juanshep1/vanbrew", "X-Title": "Vanta Code"}
-        j = http_json(cfg["base"] + "/chat/completions", payload, headers)
+        url = cfg["base"] + "/chat/completions"
+    if stream: payload["stream"] = True
+    return url, payload, headers
+
+def call_llm(cfg, history):
+    """Blocking call. Returns {content:[blocks], stop:'tool'|'end', trunc:bool}."""
+    url, payload, headers = _payload_headers(cfg, history)
+    j = http_json(url, payload, headers)
+    if cfg["kind"] == "anthropic":
         u = j.get("usage", {}) or {}
-        USAGE["ctx"] = u.get("prompt_tokens", USAGE["ctx"]); USAGE["out"] += u.get("completion_tokens", 0)
-        ch = j["choices"][0]; m = ch["message"]
-        trunc = ch.get("finish_reason") == "length"
-        blocks = []
-        if m.get("content"): blocks.append({"type": "text", "text": m["content"]})
-        for tc in (m.get("tool_calls") or []):
-            raw = tc["function"]["arguments"] or "{}"
-            try:
-                inp = json.loads(raw)
-            except Exception:
-                inp = {"_truncated": raw}    # cut-off JSON args -> flag it, don't run silently empty
-            blocks.append({"type": "tool_use", "id": tc["id"], "name": tc["function"]["name"], "input": inp})
-        stop = "tool" if (m.get("tool_calls")) else "end"
-        return {"content": blocks, "stop": stop, "trunc": trunc}
+        USAGE["ctx"] = u.get("input_tokens", USAGE["ctx"]); USAGE["out"] += u.get("output_tokens", 0)
+        blocks = j.get("content", [])
+        stop = "tool" if j.get("stop_reason") == "tool_use" else "end"
+        return {"content": blocks, "stop": stop, "trunc": j.get("stop_reason") == "max_tokens"}
+    u = j.get("usage", {}) or {}
+    USAGE["ctx"] = u.get("prompt_tokens", USAGE["ctx"]); USAGE["out"] += u.get("completion_tokens", 0)
+    ch = j["choices"][0]; m = ch["message"]
+    trunc = ch.get("finish_reason") == "length"
+    blocks = []
+    if m.get("content"): blocks.append({"type": "text", "text": m["content"]})
+    for tc in (m.get("tool_calls") or []):
+        raw = tc["function"]["arguments"] or "{}"
+        try:
+            inp = json.loads(raw)
+        except Exception:
+            inp = {"_truncated": raw}    # cut-off JSON args -> flag it, don't run silently empty
+        blocks.append({"type": "tool_use", "id": tc["id"], "name": tc["function"]["name"], "input": inp})
+    stop = "tool" if (m.get("tool_calls")) else "end"
+    return {"content": blocks, "stop": stop, "trunc": trunc}
+
+# ------------------------------------------------------------- streaming -----
+STREAM = {"on": True}    # /stream toggles; falls back to blocking automatically
+
+class StreamPrinter(object):
+    """Live renderer for streamed text: buffers to whole lines, then applies the
+    same styling print_assistant uses (⏺ lead, headings, bullets, code fences)."""
+    def __init__(self, on_first=None):
+        self.buf = ""; self.first = True; self.fence = False; self.wrote = False
+        self._on_first = on_first
+    def _emit_line(self, raw):
+        st = raw.strip()
+        if st.startswith("```"):
+            self.fence = not self.fence
+            line = dim("  " + "┄" * 24)
+        elif self.fence:
+            line = _hl_code(raw)
+        else:
+            h = re.match(r"^(#{1,6})\s+(.*)", raw)
+            b = re.match(r"^(\s*)[-*]\s+(.*)", raw)
+            if h: line = bold(orange(h.group(2)))
+            elif b: line = b.group(1) + orange("•") + " " + _md_inline(b.group(2))
+            else: line = _md_inline(raw)
+        if self.first and st:
+            sys.stdout.write(orange("⏺ ") + line + "\n"); self.first = False
+        else:
+            sys.stdout.write("  " + line + "\n")
+        sys.stdout.flush(); self.wrote = True
+    def feed(self, delta):
+        if self._on_first:
+            try: self._on_first()
+            except Exception: pass
+            self._on_first = None
+        self.buf += delta
+        while "\n" in self.buf:
+            line, self.buf = self.buf.split("\n", 1)
+            self._emit_line(line)
+    def close(self):
+        if self.buf.strip(): self._emit_line(self.buf)
+        self.buf = ""
+
+def _sse_lines(resp):
+    """Yield the data payload of each SSE event from an open HTTP response."""
+    for raw in resp:
+        line = raw.decode("utf-8", "replace").rstrip("\r\n")
+        if line.startswith("data:"):
+            yield line[5:].strip()
+
+def stream_llm(cfg, history, printer):
+    """Streaming call. Text prints live through `printer`; returns the same
+    normalized dict as call_llm (plus streamed=True). Raises on failure —
+    the caller falls back to the blocking path if nothing printed yet."""
+    url, payload, headers = _payload_headers(cfg, history, stream=True)
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    blocks = []; stop_reason = None; trunc = False
+    with urllib.request.urlopen(req, timeout=300) as r:
+        if cfg["kind"] == "anthropic":
+            cur = None
+            for datum in _sse_lines(r):
+                if not datum or datum == "[DONE]": continue
+                try: ev = json.loads(datum)
+                except Exception: continue
+                t = ev.get("type")
+                if t == "message_start":
+                    u = (ev.get("message", {}) or {}).get("usage", {}) or {}
+                    USAGE["ctx"] = u.get("input_tokens", USAGE["ctx"])
+                elif t == "content_block_start":
+                    cb = ev.get("content_block", {})
+                    if cb.get("type") == "text":
+                        cur = {"type": "text", "text": ""}
+                    elif cb.get("type") == "tool_use":
+                        cur = {"type": "tool_use", "id": cb.get("id"), "name": cb.get("name"), "_json": ""}
+                    else:
+                        cur = {"type": cb.get("type", "?")}
+                    blocks.append(cur)
+                elif t == "content_block_delta" and cur is not None:
+                    d = ev.get("delta", {})
+                    if d.get("type") == "text_delta":
+                        cur["text"] = cur.get("text", "") + d.get("text", "")
+                        printer.feed(d.get("text", ""))
+                    elif d.get("type") == "input_json_delta":
+                        cur["_json"] = cur.get("_json", "") + d.get("partial_json", "")
+                elif t == "message_delta":
+                    stop_reason = (ev.get("delta", {}) or {}).get("stop_reason") or stop_reason
+                    u = ev.get("usage", {}) or {}
+                    USAGE["out"] += u.get("output_tokens", 0)
+                elif t == "error":
+                    raise RuntimeError("stream error: %s" % json.dumps(ev.get("error", {}))[:300])
+            for b in blocks:
+                if b.get("type") == "tool_use":
+                    raw = b.pop("_json", "") or "{}"
+                    try: b["input"] = json.loads(raw)
+                    except Exception: b["input"] = {"_truncated": raw}
+            trunc = stop_reason == "max_tokens"
+            stop = "tool" if stop_reason == "tool_use" else "end"
+        else:   # OpenAI-compatible SSE (OpenRouter / Ollama Cloud)
+            text = ""; calls = {}; finish = None
+            for datum in _sse_lines(r):
+                if not datum: continue
+                if datum == "[DONE]": break
+                try: ev = json.loads(datum)
+                except Exception: continue
+                ch = (ev.get("choices") or [{}])[0]
+                d = ch.get("delta", {}) or {}
+                if d.get("content"):
+                    text += d["content"]; printer.feed(d["content"])
+                for tc in (d.get("tool_calls") or []):
+                    i = tc.get("index", 0)
+                    slot = calls.setdefault(i, {"id": tc.get("id"), "name": "", "args": ""})
+                    if tc.get("id"): slot["id"] = tc["id"]
+                    fn = tc.get("function", {}) or {}
+                    if fn.get("name"): slot["name"] += fn["name"]
+                    if fn.get("arguments"): slot["args"] += fn["arguments"]
+                finish = ch.get("finish_reason") or finish
+                u = ev.get("usage") or {}
+                if u:
+                    USAGE["ctx"] = u.get("prompt_tokens", USAGE["ctx"])
+                    USAGE["out"] += u.get("completion_tokens", 0)
+            if text: blocks.append({"type": "text", "text": text})
+            for i in sorted(calls):
+                c = calls[i]
+                try: inp = json.loads(c["args"] or "{}")
+                except Exception: inp = {"_truncated": c["args"]}
+                blocks.append({"type": "tool_use", "id": c["id"] or ("call_%d" % i),
+                               "name": c["name"], "input": inp})
+            trunc = finish == "length"
+            stop = "tool" if calls else "end"
+    return {"content": blocks, "stop": stop, "trunc": trunc, "streamed": True}
 
 # ----------------------------------------------------------------- agent -----
 def wrap(text, width):
@@ -1012,6 +1478,7 @@ def _transcript(history):
         for b in (c or []):
             t = b.get("type")
             if t == "text": lines.append("%s: %s" % (m["role"], b.get("text", "")))
+            elif t == "image": lines.append("user: [attached an image: %s]" % os.path.basename(b.get("_path", "image")))
             elif t == "tool_use": lines.append("assistant -> %s(%s)" % (b.get("name"), json.dumps(b.get("input", {}))[:200]))
             elif t == "tool_result": lines.append("tool result: %s" % (str(b.get("content", ""))[:300]))
     return "\n".join(lines)
@@ -1058,30 +1525,59 @@ def agent_turn(cfg, history, user_text):
         history[:] = compact_history(cfg, history)
     history.append({"role": "user", "content": user_text})
     SESSION["turns"] += 1
-    # The LLM call runs in a worker thread while the main thread animates the
-    # spinner and stays responsive to Ctrl-C (a signal — reliable regardless of
-    # terminal mode or threads, unlike the old raw-stdin Esc watcher).
     try:
         for _ in range(60):
-            sp = Spinner(SPIN_WORDS[int(time.time()) % len(SPIN_WORDS)]).start()
-            box = {}
-            th = threading.Thread(target=_call_worker, args=(cfg, history, box)); th.daemon = True; th.start()
-            try:
-                while th.is_alive(): th.join(0.1)
-            finally:
-                sp.stop()
-            if "e" in box:
-                print(red("⏺ " + str(box["e"]))); return
-            resp = box.get("r")
-            if not resp: return
+            resp = None
+            word = SPIN_WORDS[int(time.time()) % len(SPIN_WORDS)]
+            if STREAM["on"]:
+                # streaming runs on the MAIN thread (Ctrl-C lands naturally);
+                # the spinner shows until the first token arrives.
+                sp = Spinner(word).start()
+                printer = StreamPrinter(on_first=sp.stop)
+                try:
+                    resp = stream_llm(cfg, history, printer)
+                    printer.close()
+                except KeyboardInterrupt:
+                    sp.stop(); raise
+                except Exception as e:
+                    printer.close(); sp.stop()
+                    if printer.wrote:      # mid-reply drop: nothing valid to keep
+                        print(red("⏺ the stream dropped mid-reply: %s" % e))
+                        _finalize_interrupt(history); return
+                finally:
+                    sp.stop()
+            if resp is None:
+                # blocking fallback: worker thread + spinner (also the /stream off path)
+                sp = Spinner(word).start()
+                box = {}
+                th = threading.Thread(target=_call_worker, args=(cfg, history, box)); th.daemon = True; th.start()
+                try:
+                    while th.is_alive(): th.join(0.1)
+                finally:
+                    sp.stop()
+                if "e" in box:
+                    print(red("⏺ " + str(box["e"]))); return
+                resp = box.get("r")
+                if not resp: return
             history.append({"role": "assistant", "content": resp["content"]})
             results = []
+            streamed = resp.get("streamed")
             for b in resp["content"]:
                 if b["type"] == "text" and b["text"].strip():
-                    print_assistant(b["text"])
+                    if not streamed:
+                        print_assistant(b["text"])
                 elif b["type"] == "tool_use":
                     out = run_tool(b["name"], b.get("input", {}))
-                    results.append({"type": "tool_result", "tool_use_id": b["id"], "content": out})
+                    if isinstance(out, dict) and "__image__" in out:
+                        # the tool read an image: hand the actual pixels back to the model
+                        try:
+                            img = image_block(out["__image__"]); img.pop("_path", None)
+                            content = [{"type": "text", "text": "Here is the image:"}, img]
+                        except Exception as e:
+                            content = "could not load the image: %s" % e
+                        results.append({"type": "tool_result", "tool_use_id": b["id"], "content": content})
+                    else:
+                        results.append({"type": "tool_result", "tool_use_id": b["id"], "content": out})
             tool_uses = any(b["type"] == "tool_use" for b in resp["content"])
             if tool_uses: history.append({"role": "user", "content": results})
             if resp.get("trunc"):                  # cut off at the output limit
@@ -1109,6 +1605,20 @@ def box(lines, width=None):
         print(orange("│ ") + ln)
     print(orange(bot))
 
+def _git_branch():
+    try:
+        r = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2)
+        b = r.stdout.decode().strip()
+        return b if (r.returncode == 0 and b) else None
+    except Exception:
+        return None
+
+def _tool_dot(name):
+    found = shutil.which(name) or (os.path.exists(os.path.expanduser("~/.vanbrew/bin/" + name))
+                                   and os.path.expanduser("~/.vanbrew/bin/" + name))
+    return (green("●") if found else grey("○")) + " " + (bold(name) if found else dim(name))
+
 def banner(cfg):
     w = max(len(l) for l in VANTA_ART)
     print()
@@ -1117,10 +1627,54 @@ def banner(cfg):
     print("  " + orange("c o d e") + dim("   ·   the terminal agent that speaks Vanta   ·   v" + VERSION))
     print("  " + dim("─" * w))
     dot = green("●") if cfg.get("key") else grey("○")
-    print("  " + dot + "  " + bold(cfg["provider"]) + dim("   ·   ") + cfg["model"])
-    print("  " + dim(os.getcwd()))
+    print("  " + dot + "  " + bold(cfg["provider"]) + dim("   ·   ") + cfg["model"] +
+          dim("   ·   ") + " ".join(_tool_dot(t) for t in ("vanta", "vc", "vself")))
+    br = _git_branch()
+    print("  " + dim(os.getcwd()) + ((dim("   ·   ") + orange("⎇ " + br)) if br else ""))
     print()
-    print(dim("  type / and Tab to autocomplete a command   ·   ask me to build something   ·   Ctrl-D to exit"))
+    print(dim("  ask me to build something   ·   drag an image in and I can see it   ·   / for commands   ·   Ctrl-D exits"))
+    print()
+
+def doctor(cfg):
+    """A quick health-check of everything vcode leans on."""
+    print()
+    print("  " + bold(orange("vcode doctor")) + dim("  · v%s" % VERSION))
+    print()
+    def row(ok, name, detail, fix=""):
+        mark = green("✓") if ok else red("✗")
+        line = "  %s %-12s %s" % (mark, name, dim(detail))
+        if not ok and fix: line += dim("  → ") + orange(fix)
+        print(line)
+    # the Vanta toolchain
+    vanta = find_vanta()
+    ver = ""
+    if vanta:
+        try:
+            r = subprocess.run([vanta, "--version"], stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, timeout=5)
+            ver = r.stdout.decode().strip().split("\n")[0][:40]
+        except Exception:
+            ver = "installed"
+    row(bool(vanta), "vanta", ver or "the Vanta interpreter", "vanbrew install vanta")
+    for t, what, fix in (("vc", "native Vanta→C compiler", "vanbrew install vc"),
+                         ("vself", "self-hosted native interpreter", "vanbrew install vself"),
+                         ("vanbrew", "the Vanta package manager", "curl -fsSL https://raw.githubusercontent.com/Juanshep1/vanbrew/main/install.sh | sh")):
+        p = shutil.which(t) or (os.path.exists(os.path.expanduser("~/.vanbrew/bin/" + t)) and t)
+        row(bool(p), t, what, fix)
+    # the brain
+    row(bool(cfg.get("key")), "api key", "%s · %s" % (cfg.get("provider", "?"), cfg.get("model", "?")), "/provider")
+    vision_ok = cfg.get("kind") == "anthropic" or any(
+        s in (cfg.get("model") or "").lower() for s in ("claude", "gpt-4", "gpt-5", "gemini", "vl", "vision", "pixtral", "llava", "qwen3-vl"))
+    row(vision_ok, "vision", "drag-in images " + ("should work on this model" if vision_ok
+        else "may not work on %s — pick a vision model with /model" % cfg.get("model", "?")))
+    row(STREAM["on"], "streaming", "live output is %s" % ("on" if STREAM["on"] else "off"), "/stream")
+    # the terminal
+    row(COLOR, "colors", "truecolor output" if COLOR else "plain output (TERM=%s)" % os.environ.get("TERM"))
+    row(sys.version_info >= (3, 8), "python", sys.version.split()[0])
+    ch = find_chrome()
+    row(bool(ch), "chrome", "app windows for run_app" if ch else "run_app will use your default browser")
+    br = _git_branch()
+    row(True, "cwd", os.getcwd() + ((" · ⎇ " + br) if br else ""))
     print()
 
 HELP = """  Commands:
@@ -1133,7 +1687,11 @@ HELP = """  Commands:
     /skills install  grab a pile of skills from a repo (default: Anthropic's official skills)
     /myskills        your pinned skills; Enter loads one to use (also: /<skill-name>)
     /skills remove <name>  unpin a skill from My Skills
-    /themes          pick a color theme (ember, synthwave, matrix, ice, gold, mono)
+    /paste           attach an image from your clipboard to the next message
+    /doctor          health-check the Vanta toolchain (vanta, vc, vself, vanbrew)
+    /stream          toggle live streaming output on/off
+    /todos           show the agent's current task checklist
+    /themes          pick a color theme (dusk, ember, synthwave, matrix, ice, gold, mono)
     /provider [name] list providers, or switch: anthropic | openrouter | ollama
     /key             paste/replace the API key for the current provider
     /model [n|name]  list models and pick one (/model 2), or set any id
@@ -1160,6 +1718,8 @@ HELP = """  Commands:
     @path/to/file    inline a file's contents into your message
     #skill-name      reference a Skill right in your prompt (e.g. "make a #pdf invoice")
     ↑ / ↓            recall previous prompts (history is saved)
+    drag an image    drop a PNG/JPEG onto this window — I can SEE it (screenshots,
+                     mockups, error photos…). /paste grabs one from the clipboard.
 
   Just type what you want, e.g.:
     "write a fizzbuzz in vanta and run it"
@@ -1193,6 +1753,10 @@ SLASH_COMMANDS = [
     ("/cost",     "session time · turns · tokens"),
     ("/resume",   "reload your previous session"),
     ("/init",     "scan the project, write VANTA.md"),
+    ("/paste",    "attach an image from the clipboard"),
+    ("/doctor",   "check the Vanta toolchain + setup"),
+    ("/stream",   "toggle live streaming output"),
+    ("/todos",    "show the agent's current checklist"),
     ("/skills",   "browse skills · Enter pins one to My Skills"),
     ("/myskills", "your pinned skills · Enter loads one to use"),
     ("/themes",   "pick a colour theme"),
@@ -1522,7 +2086,15 @@ def read_line():
 def prompt_input():
     w = term_width()
     if USAGE["ctx"]:
-        print(dim("  context ~%s tokens  ·  %s out" % (_human(USAGE["ctx"]), _human(USAGE["out"]))))
+        pct = min(99, USAGE["ctx"] * 100 // 200000)
+        meter = ""
+        if COLOR:
+            filled = min(10, pct // 10)
+            meter = "  " + orange("▮" * filled) + dim("▯" * (10 - filled))
+        print(dim("  context ~%s/200k tokens (%d%%)%s  ·  %s out" %
+                  (_human(USAGE["ctx"]), pct, meter, _human(USAGE["out"]))))
+    if _PENDING_IMAGES:
+        print("  " + orange("⧉ ") + dim("%d image(s) queued — they ride along with your next message" % len(_PENDING_IMAGES)))
     _mode_banner()
     print(orange("╭" + "─" * (w - 2) + "╮"))
     line = read_line()                     # '/' menu, shift+tab modes, history, no-wrap
@@ -1555,7 +2127,7 @@ def expand_mentions(text):
 # ----------------------------------------------------------------- config ----
 PROVIDERS = {
     "anthropic":  {"kind": "anthropic", "env": "ANTHROPIC_API_KEY",  "base": None,
-                   "model": "claude-sonnet-4-6",        "label": "Anthropic (Claude)"},
+                   "model": "claude-fable-5",           "label": "Anthropic (Claude)"},
     "openrouter": {"kind": "openai",    "env": "OPENROUTER_API_KEY", "base": "https://openrouter.ai/api/v1",
                    "model": "anthropic/claude-sonnet-4.5", "label": "OpenRouter"},
     "ollama":     {"kind": "openai",    "env": "OLLAMA_API_KEY",     "base": "https://ollama.com/v1",
@@ -1567,7 +2139,7 @@ PROVIDER_ALIASES = {"ollama-cloud": "ollama", "ollamacloud": "ollama", "claude":
 # the provider's LIVE list from /v1/models (so Ollama shows its full cloud
 # catalog); these are used only if that fetch fails or you're offline.
 MODELS = {
-    "anthropic":  ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
+    "anthropic":  ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
     "openrouter": ["anthropic/claude-sonnet-4.5", "anthropic/claude-opus-4.1", "openai/gpt-4o",
                    "google/gemini-2.5-pro", "deepseek/deepseek-chat", "qwen/qwen3-coder",
                    "meta-llama/llama-3.3-70b-instruct"],
@@ -1963,7 +2535,7 @@ def main():
         cfg = first_run_setup()                       # add a key right here in the CLI
     if not cfg:
         no_key_screen(); return
-    set_theme(file_config().get("theme", "ember"))   # restore the saved theme
+    set_theme(file_config().get("theme", "dusk"))   # restore the saved theme
     _seed_skills()                                    # ship example Vanta skills on first run
     refresh_context()                                 # auto-load VANTA.md/AGENTS.md/CLAUDE.md + skills
     load_myskills()                                   # restore the user's pinned My Skills
@@ -2014,6 +2586,7 @@ def main():
         s = load_session()
         if s: history[:] = s; print(dim("  ↻ continued previous session (%d messages)\n" % len(s)))
     while True:
+        ACTIVE_CFG["cfg"] = cfg          # so subagents can think with the same brain
         try:
             line = prompt_input().strip()
         except EOFError:
@@ -2032,7 +2605,9 @@ def main():
                 buf.append(more)
             block = "\n".join(buf).strip()
             if not block: continue
-            try: agent_turn(cfg, history, expand_mentions(block))
+            _, imgs = extract_images(block)
+            imgs = _PENDING_IMAGES + imgs; _PENDING_IMAGES[:] = []
+            try: agent_turn(cfg, history, build_user_content(expand_mentions(block), imgs))
             except KeyboardInterrupt: print("\n" + dim("  (interrupted)"))
             save_session(history); print(); continue
         if line.startswith("!"):                       # run a shell command directly
@@ -2083,6 +2658,20 @@ def main():
                 MODE["v"] = "default" if MODE["v"] == "plan" else "plan"; print(dim("  mode: " + MODE["v"]))
             elif name == "mode":
                 MODE["v"] = MODE_ORDER[(MODE_ORDER.index(MODE["v"]) + 1) % len(MODE_ORDER)]; print(dim("  mode: " + MODE["v"]))
+            elif name == "doctor": doctor(cfg)
+            elif name == "stream":
+                STREAM["on"] = not STREAM["on"]
+                print(dim("  streaming: " + (green("on") if STREAM["on"] else "off")))
+            elif name == "todos":
+                if TODOS: tool_set_todos({"todos": TODOS})
+                else: print(dim("  no checklist right now — the agent builds one for multi-step work."))
+            elif name == "paste":
+                p = _clipboard_image()
+                if p:
+                    _PENDING_IMAGES.append(p); _image_chip(p)
+                    print(dim("  it will ride along with your next message."))
+                else:
+                    print(dim("  no image on the clipboard — copy one (e.g. screenshot with Cmd-Ctrl-Shift-4) and try again."))
             elif name in ("themes", "theme"): do_theme_menu(cfg)
             elif name == "model":
                 if not rest or rest.lower() == "refresh":
@@ -2171,8 +2760,10 @@ def main():
                 load_skill_into(history, real)
             else: print(dim("  unknown command. /help for the list."))
             continue
+        _, imgs = extract_images(line)
+        imgs = _PENDING_IMAGES + imgs; _PENDING_IMAGES[:] = []
         try:
-            agent_turn(cfg, history, expand_mentions(line))
+            agent_turn(cfg, history, build_user_content(expand_mentions(line), imgs))
         except KeyboardInterrupt:
             print("\n" + dim("  (interrupted)"))
         save_session(history)
